@@ -315,7 +315,8 @@ function pintarNube(n){
             : "var(--dim)";
   const txt = viejo ? "sin hablar con el servidor hace "+fmtDur(n.hace)
             : n.cod===3 ? "conectado — última señal hace "+fmtDur(n.hace)
-            : n.cod===0 ? "sin configurar"
+            : n.cod===0 ? "desactivado"
+            : n.cod===2 && /registrando/.test(n.motivo||"") ? "registrando el equipo en la nube…"
             : n.st;
   // `motivo` y `serie` vienen del equipo. Hoy son literales del firmware,
   // pero un equipo comprometido —o un estado manipulado en la base— podria
@@ -1542,21 +1543,10 @@ $("wf-save").onclick=()=>{
     toast("Enviado — el equipo se reinicia si lo aceptó…");
   }
 };
-$("nu-toggle").onclick=()=>{
-  const f=$("nu-form"); const abierto=f.style.display!=="none";
-  f.style.display=abierto?"none":"";
-  $("nu-toggle").textContent=abierto?"Configurar":"Ocultar";
-};
-$("nu-guardar").onclick=()=>{
-  const clave=$("nu-clave").value.trim();
-  if(!clave){toast("Pegá la clave que devolvió el alta");return;}
-  // La URL y la clave del proyecto no las escribe el usuario: son las mismas
-  // para todos los equipos y pedirlas seria una forma de equivocarse.
-  send({cmd:"set_nube",on:true,clave,
-        url:"https://tptdmbfmbgfzfxlkkbja.supabase.co",
-        anon:"sb_publishable_XiAue8O59_-XY-8QJHfIfw_b5Ko_y2u"});
-  $("nu-clave").value="";
-};
+// Sólo encender y apagar: la URL, la clave del proyecto y la clave propia del
+// equipo las maneja el firmware (compiladas las dos primeras, generada la
+// tercera). Pedirlas acá era una forma de equivocarse.
+$("nu-activar").onclick=()=>send({cmd:"set_nube",on:true});
 $("nu-apagar").onclick=()=>send({cmd:"set_nube",on:false});
 $("wf-forget").onclick=()=>{
   if(demo){toast("Primero conectate al equipo");return;}

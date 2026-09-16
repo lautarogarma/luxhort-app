@@ -61,10 +61,10 @@
         <div class="row" style="margin-top:12px">
           <button class="btn acc" id="n-vincular" type="button">Vincular equipo</button>
         </div>
-        <p class="nsub" style="margin-top:10px">El equipo tiene que estar encendido, con
-          internet y <b>dado de alta en la nube</b>: en su app local (la de la red de casa),
-          pestaña Conexión, la tarjeta <b>Control por internet</b> tiene que decir
-          «Conectado». Si dice «Sin configurar», primero hay que cargarle su clave ahí.</p>
+        <p class="nsub" style="margin-top:10px">El equipo tiene que estar encendido y con
+          internet: se registra solo la primera vez que se conecta. Si en su app local
+          (pestaña Conexión) la tarjeta <b>Control por internet</b> dice «desactivado»,
+          tocá <b>Activar</b> ahí.</p>
       </div>
 
       <div id="n-paso-equipos" style="display:none">
@@ -268,9 +268,9 @@
       // nunca publicó nada": la causa más común la primera vez es la segunda
       // (2026-09-16), y hay que decirla.
       msg(e.message + (/incorrecto/i.test(e.message)
-        ? " Si es la primera vez que vinculás este equipo, fijate que en su app local " +
-          "(Conexión → Control por internet) diga «Conectado»: si no tiene cargada su clave, " +
-          "no publica en la nube y ningún código va a servir."
+        ? " Fijate que el equipo tenga internet: en su app local (Conexión → Control por " +
+          "internet) tiene que decir «conectado». Y el código es el de la pantalla, en la " +
+          "pestaña Conexión."
         : ""), "err");
     }
     b.disabled = false; b.textContent = "Vincular equipo";

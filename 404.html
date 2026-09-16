@@ -388,18 +388,16 @@ button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-
   <h2>Control por internet</h2>
   <div id="nu-estado" style="margin-bottom:10px;padding:10px 12px;border-radius:8px;
     background:#161b22;border:1px solid var(--line);font-size:13px;line-height:1.5"></div>
-  <div id="nu-form" style="display:none">
-    <div><label class="fl" for="nu-clave">Clave de este equipo</label>
-      <input type="text" id="nu-clave" autocomplete="off"
-             placeholder="la que devolvió el alta, una sola vez"></div>
-    <div class="row">
-      <button class="btn acc" id="nu-guardar">Conectar a internet</button>
-      <button class="btn off" id="nu-apagar">Desactivar</button>
-    </div>
-    <div class="foot" style="text-align:left">La clave se genera al dar de alta el equipo
-      y se muestra una sola vez. Si se perdió, se genera otra y se vuelve a cargar.</div>
+  <!-- Sin campo de clave: el equipo se registra solo la primera vez que tiene
+       internet (Nube::registrar). Lo único que hace la persona es escribir el
+       código de 8 caracteres en la app remota. Pedido del 2026-09-16. -->
+  <div class="foot" style="text-align:left;margin-bottom:10px">El equipo se registra solo en la
+    nube la primera vez que tiene internet. Para manejarlo desde afuera de casa, entrá a la
+    <b>app remota</b> y escribí el <b>código de 8 caracteres</b> de arriba.</div>
+  <div class="row">
+    <button class="btn acc" id="nu-activar">Activar</button>
+    <button class="btn off" id="nu-apagar">Desactivar</button>
   </div>
-  <div class="row"><button class="btn" id="nu-toggle">Configurar</button></div>
 </div>
 
 <div class="foot">fw <span id="fw">—</span> · hora equipo <span id="time">—</span> · <span id="ip">—</span></div>
