@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<!-- Se permite el zoom a proposito: impedirlo deja sin salida a quien necesita
+     agrandar, y esta app se usa en un invernadero con el telefono a distancia
+     de brazo. El zoom accidental al tocar un control se evita con objetivos
+     tactiles de 44 px y font-size 16 en los campos, que ya estan. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d1117">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="LUXHorticultura">
+<title>LUXHorticultura — control remoto</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src https://tptdmbfmbgfzfxlkkbja.supabase.co; base-uri 'none'; form-action 'none'">
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="./icon.svg">
+<style>
+:root{
+  --bg:#0d1117; --card:#161b22; --line:#21262d; --tx:#e6edf3; --dim:#8b949e;
+  --acc:#3fb950; --warn:#d29922;
+  /* ── Bordes: dos niveles, a proposito (UX-260908-09) ──
+     `--line` separa GRUPOS (tarjetas, divisores) y es suave: subirlo
+     cuadricularia la pagina entera. `--border-control` delimita lo que se
+     puede TOCAR —botones y campos— y llega a 3:1 contra su propio fondo, que
+     es el minimo para un borde no-textual. Es el mismo tono que C_BORDE en la
+     pantalla fisica (src/DisplayUi.cpp), asi los dos productos se parecen.
+     Antes todo era #30363d: en un telefono con reflejos, o en un invernadero
+     a pleno sol, un boton neutral y un campo oscuro se veian igual. */
+  --border-control:#6e7681; --surface-raised:#21262d; --focus:#58a6ff;
+  --c0:#ffb347; --c1:#bfe3ff; --c2:#ff4d4d; --c3:#b03a3a; --c4:#9b59f0;
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{background:var(--bg);color:var(--tx);font:16px/1.45 system-ui,Segoe UI,Roboto,sans-serif;padding:14px;max-width:560px;margin:0 auto}
+h1{font-size:20px;display:flex;align-items:center;gap:8px}
+h1 .dot{width:10px;height:10px;border-radius:50%;background:#f85149;display:inline-block}
+h1 .dot.ok{background:var(--acc)}
+.sub{color:var(--dim);font-size:12px;margin:2px 0 14px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px;position:relative}
+.ch{display:grid;grid-template-columns:64px 1fr 52px 56px;gap:10px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+/* Espectro dinamico: el equipo maneja la mezcla y no hay nada que tocar, asi
+   que el slider y el switch se retiran y la fila queda como lectura — nombre y
+   porcentaje, con el numero mas grande porque pasa a ser lo unico que importa. */
+#channels.auto .ch{grid-template-columns:1fr auto}
+#channels.auto .ch>.sl-cell,#channels.auto .ch>.sw{display:none}
+#channels.auto .ch>.pc{font-size:17px;font-weight:600;text-align:right}
+.ch:last-child{border-bottom:0}
+.ch .nm{font-size:13px;font-weight:600}
+.ch .nm small{display:block;color:var(--dim);font-weight:400;font-size:10px}
+/* Objetivo tactil: 44 px de alto minimo (guia de Apple; Android pide 48 dp).
+   Esto se usa en un invernadero, con guantes o las manos mojadas, y el control
+   mas tocado del producto —el interruptor de cada canal— medía 26 px de alto:
+   la mitad. Ver CL-047. */
+.ch input[type=range]{width:100%;accent-color:var(--acc);height:44px}
+.ch input[type=range]::-webkit-slider-thumb,#dim-sl::-webkit-slider-thumb{width:26px;height:26px}
+.ch .pct{font-variant-numeric:tabular-nums;text-align:right;font-size:14px}
+.sw{position:relative;width:56px;height:32px;flex:0 0 56px;background:#30363d;border:1px solid var(--border-control);border-radius:16px;cursor:pointer;transition:.15s}
+.sw.on{background:var(--acc);border-color:var(--acc)}
+/* El area sensible se estira a 44 px sin agrandar el dibujo del interruptor:
+   asi el boton sigue viendose proporcionado en la fila del canal. */
+.sw::before{content:"";position:absolute;inset:-6px -4px;border-radius:22px}
+.sw::after{content:"";position:absolute;top:3px;left:3px;width:26px;height:26px;border-radius:50%;background:#fff;transition:.15s}
+.sw.on::after{left:27px}
+.bar{height:6px;border-radius:3px;margin-top:4px;background:linear-gradient(90deg,var(--cc) var(--p),#21262d var(--p))}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+button.btn{flex:1;min-width:100px;min-height:44px;background:var(--surface-raised);border:1px solid var(--border-control);color:var(--tx);padding:12px 8px;border-radius:9px;font-size:14px;cursor:pointer}
+button.btn:active{transform:scale(.97)}
+button.btn.acc{background:var(--acc);border-color:var(--acc);color:#04130a;font-weight:700}
+/* Hay cambios tipeados que todavia no se mandaron al equipo. */
+button.btn.dirty{box-shadow:0 0 0 2px var(--warn,#e8b339)}
+button.btn.off{background:#3d1d1d;border-color:#6e2c2c}
+h2{font-size:14px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+label.fl{font-size:12px;color:var(--dim);display:block;margin-bottom:3px}
+/* min-height 44: mismo objetivo tactil que los botones (CL-047). El font-size
+   de 16 px no es estetico — abajo de eso, Safari en iPhone hace zoom solo al
+   enfocar el campo y descoloca la pantalla entera. */
+input[type=time],input[type=number],input[type=text],input[type=password],input[type=datetime-local]{width:100%;min-height:44px;background:#0d1117;border:1px solid var(--border-control);color:var(--tx);padding:10px 9px;border-radius:8px;font-size:16px}
+/* El switch es flex:0 0 56px (ver .sw) para que NUNCA se encoja. Sin eso, un
+   texto largo lo aplastaba de 56 a ~32 px y quedaba redondo en vez de
+   pildora: dos filas seguidas con textos de distinto largo mostraban dos
+   switches de tamanos distintos, y parecia que uno estaba desalineado.
+   min-width:0 en el texto es lo que le permite envolver dentro del flex en
+   vez de empujar. */
+.schon{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}
+.schon>div:first-child{min-width:0;flex:1 1 auto}
+/* Foco visible. Sin esto, navegar con teclado o con un conmutador es avanzar
+   a ciegas: el control tiene el foco y nada lo muestra. :focus-visible no le
+   pone anillo al toque ni al clic, solo cuando hace falta. */
+button:focus-visible,input:focus-visible,a:focus-visible{
+  outline:3px solid var(--focus);outline-offset:2px;border-radius:6px}
+.sw:focus-visible{outline-offset:4px}
+.toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1f6feb;color:#fff;padding:10px 18px;border-radius:9px;font-size:14px;opacity:0;pointer-events:none;transition:.25s}
+.toast.show{opacity:1}
+.foot{color:var(--dim);font-size:11px;text-align:center;margin-top:6px}
+.demo{background:var(--warn);color:#1c1503;font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;display:none}
+body.demo-mode .demo{display:inline-block}
+#role-banner{display:none;background:#2d2410;border:1px solid var(--warn);color:#e3b341;
+  font-size:13px;padding:10px 12px;border-radius:9px;margin-bottom:12px;text-align:center}
+/* Estado de salud del equipo (hora y red). Separado del aviso de rol: son
+   ejes distintos y pueden estar activos a la vez. Lo importante que comunica
+   es que la luminaria SIGUE funcionando aunque no haya internet — sin este
+   aviso, un equipo sin red se leia como un equipo roto. */
+#dev-banner{display:none;font-size:13px;padding:10px 12px;border-radius:9px;
+  margin-bottom:12px;text-align:center;line-height:1.5}
+#dev-banner.warn{background:#2d2410;border:1px solid var(--warn);color:#e3b341}
+#dev-banner.bad{background:#2d1418;border:1px solid #f85149;color:#ff9d95}
+#dev-banner button{margin-top:8px;display:block;width:100%}
+/* En rol Local Maestro / Esclavo el firmware ignora los comandos de control
+   que llegan por WS (solo rol WiFi Maestro escribe) — sin esto, tocar un
+   slider "andaba" un instante y rebotaba al valor real con el proximo
+   estado del servidor: se sentia como lag, no como bloqueo intencional
+   (ver comentario junto a role-banner en el JS). Atenuar y bloquear el
+   toque de entrada evita ese parpadeo confuso en vez de solo explicarlo
+   despues de que ya paso. */
+body.ro-locked .ro-target{opacity:.45;pointer-events:none}
+button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-weight:700}
+.chip{flex:none !important;min-width:0 !important;padding:7px 10px !important;font-size:12px !important}
+.pgrid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-top:8px}
+.pgrid .btn{min-width:0;padding:10px 4px;font-size:12px;font-weight:600}
+</style>
+</head>
+<body>
+<h1><span class="dot" id="dot"></span> LUXHorticultura <span id="devid" style="color:var(--dim);font-weight:400"></span> <span class="demo">DEMO</span></h1>
+<div class="sub" id="status">conectando…</div>
+<div id="role-banner"></div>
+<div id="dev-banner"></div>
+
+<!-- Vista de estado. Antes la app abria con el grafico espectral, que es una
+     visualizacion secundaria: para saber si la luminaria estaba encendida
+     habia que interpretar cinco sliders. Estas cuatro lineas contestan lo que
+     se viene a preguntar. -->
+<div class="card" id="resumen" style="display:none">
+  <h2>Estado</h2>
+  <div id="rs-luz" style="font-size:19px;font-weight:600;margin-bottom:6px"></div>
+  <div id="rs-rige" style="font-size:14px;color:var(--dim)"></div>
+  <div id="rs-prox" style="font-size:14px;color:var(--dim);margin-top:3px"></div>
+  <div id="rs-alerta" style="font-size:14px;margin-top:6px;display:none"></div>
+</div>
+
+<!-- Acciones rápidas. Lo que se viene a hacer en la visita corta: bajar la
+     intensidad o apagar. Antes el dimmer estaba despues de TODO el formulario
+     de fotoperiodo, a media pagina de scroll de los canales que escala, y
+     "Apagar todo" era un boton mas en la grilla de recetas (UX-260908-01,
+     UX-260908-06). -->
+<div class="card h-sl ro-target" id="acciones">
+  <h2>Acciones rápidas</h2>
+  <div class="ch" style="grid-template-columns:auto 1fr 52px;gap:10px;border-bottom:0;padding-top:0">
+    <div class="nm"><label for="dim-sl">Brillo global</label></div>
+    <input type="range" id="dim-sl" min="0" max="100" step="1" value="100" style="height:44px"
+           aria-label="Brillo global">
+    <div class="pct" id="dim-pc">100%</div>
+  </div>
+  <div class="foot" style="text-align:left;margin-top:0">Escala los cinco canales a la vez
+    sin cambiar sus porcentajes. Al 50 % la receta es la misma, con la mitad de potencia.</div>
+
+  <!-- Zona destructiva, separada a proposito de la grilla de recetas: apagar
+       no es "otra receta", es interrumpir el fotoperiodo. Pide confirmacion y
+       deja el camino de vuelta. -->
+  <div id="apagar-zona" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+    <div class="row" style="margin-top:0">
+      <button class="btn off" id="apagar-todo">⏻ Apagar todo</button>
+      <button class="btn" id="restaurar-receta" style="display:none">↩ Restaurar la receta anterior</button>
+    </div>
+    <div class="foot" id="apagar-info" style="text-align:left">Lleva los cinco canales a 0 %.
+      La receta guardada no se borra: se puede volver con un toque.</div>
+  </div>
+</div>
+
+<div class="card ro-target" id="channels-card">
+  <h2 id="channels-title">Canales de la receta</h2>
+  <div class="foot" style="text-align:left;margin:-2px 0 8px">Cada canal es un porcentaje de
+    su propio máximo. El <b>brillo global</b> de arriba escala los cinco sin tocar estos números.</div>
+  <div id="channels"></div>
+</div>
+
+<!-- El grafico espectral quedo COLAPSADO y despues de los canales. Es una
+     lectura, no un control: ponerlo primero obligaba a interpretar una curva
+     antes de llegar al interruptor (UX-260908-01). A pedido del usuario
+     (2026-09-15) ya no se pliega: el grafico se ve siempre. -->
+<div class="card" id="espectro-card">
+  <h2 style="margin:0 0 10px">Espectro</h2>
+  <canvas id="spd" role="img" aria-label="Mezcla espectral relativa de los cinco canales"
+          style="width:100%;height:170px;display:block"></canvas>
+  <div class="foot" style="text-align:left">Mezcla relativa de los canales configurados.
+    No representa PPFD ni potencia medida.</div>
+  <div id="spd-tabla" class="foot" style="text-align:left"></div>
+  <div class="foot" style="display:flex;justify-content:space-between"><span>340</span><span>450</span><span>560</span><span>670</span><span>780 nm</span></div>
+</div>
+
+<div class="card ro-target">
+  <h2>Recetas rápidas</h2>
+  <div class="pgrid" id="presets-grid"></div>
+  <!-- Este texto decía que FR y UVA quedaban apagados en las recetas. Dejó de
+       ser cierto cuando se restauró el catálogo con far-red y UVA activos
+       (decisión del propietario, 2026-08-10) y quedó contradiciendo lo que el
+       usuario ve en los presets (UX-010). -->
+  <div class="foot" style="margin-top:8px">Puntos iniciales de mando eléctrico; ajustá la intensidad con PPFD/DLI medido. Las recetas incluyen far red; el UVA pide confirmación cuando supera el 50&nbsp;%.</div>
+</div>
+<div class="card ro-target" id="my-presets-card" style="display:none">
+  <h2>Mis presets · guardados en este teléfono</h2>
+  <div class="pgrid" id="my-presets-grid"></div>
+</div>
+<div id="save-preset-bar" style="display:none;margin-bottom:12px;display:none">
+  <div style="display:flex;gap:8px;align-items:center">
+    <input type="text" id="save-preset-name" placeholder="Nombre del preset…" style="flex:1;background:#161b22;border:1px solid #30363d;color:var(--tx);padding:9px;border-radius:8px;font-size:14px">
+    <button class="btn acc" id="save-preset-btn" style="flex:none;min-width:0;padding:9px 14px;font-size:13px">💾 Guardar</button>
+  </div>
+</div>
+
+<div class="card h-sl ro-target">
+  <div class="schon">
+    <h2 style="margin:0">Fotoperíodo</h2>
+    <button class="sw" id="sch-en" role="switch" aria-checked="false" aria-label="Fotoperíodo activo"></button>
+  </div>
+  <div style="margin:4px 0 10px">
+    <div id="sch-tl-bg" style="position:relative;height:12px;border-radius:6px;overflow:hidden;background:var(--line)">
+      <div id="sch-tl-now" style="position:absolute;top:0;width:2px;height:100%;background:rgba(255,255,255,.65);display:none"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;color:var(--dim);font-size:10px;margin-top:2px">
+      <span>0h</span><span>6h</span><span>12h</span><span>18h</span><span>24h</span>
+    </div>
+  </div>
+  <!-- Una sola instruccion. El texto anterior decia a la vez «podes preparar
+       el horario aca abajo» y «activa el fotoperiodo para programar horarios»:
+       dos frases que se contradicen sobre si el borrador sirve de algo
+       (UX-260908-02). -->
+  <div id="sch-off-msg" style="display:none;text-align:center;padding:10px 0 4px;color:var(--dim);font-size:13px;line-height:1.5">
+    <b>Luz continua.</b> El fotoperíodo está apagado: el equipo funciona sin horario,
+    con el espectro configurado.<br>
+    Podés preparar el horario acá abajo; se pone en marcha cuando actives
+    <b>Fotoperíodo</b> y toques <b>Guardar</b>.
+  </div>
+  <div id="sch-cfg">
+  <!-- Nombres de ACCION, no de jerga. «Horario 24 h» se leia como «luz
+       encendida 24 horas», que es justo lo contrario de lo que hace, y
+       «Superciclo» no dice nada si no se sabe de antemano (UX-260908-02). -->
+  <div class="row" style="margin-bottom:8px">
+    <button class="btn" id="cyc-daily">Cada día</button>
+    <button class="btn" id="cyc-free">Ciclo relativo</button>
+  </div>
+  <!-- Las dos explicaciones SIEMPRE visibles, no sólo la del modo elegido:
+       para decidir entre dos cosas hay que poder leer las dos. -->
+  <div class="foot" id="cyc-info" style="text-align:left;margin:0 0 10px;line-height:1.6"></div>
+
+  <!-- Modo clásico: dos horas de reloj. El día siempre dura 24 h. -->
+  <div id="cfg-daily" class="grid2">
+    <div><label class="fl" for="sch-on">Enciende a las</label><input type="time" id="sch-on" value="06:00"></div>
+    <div><label class="fl" for="sch-off">Apaga a las</label><input type="time" id="sch-off" value="18:00"></div>
+  </div>
+
+  <!-- Superciclo: el día NO dura 24 h, así que no hay una hora de encendido
+       fija — se define cuánto dura cada fase y cuándo arranca la primera. -->
+  <div id="cfg-free" class="grid2" style="display:none">
+    <div><label class="fl" for="cyc-light">Horas de luz</label><input type="number" id="cyc-light" min="0.5" max="48" step="0.5" value="13"></div>
+    <div><label class="fl" for="cyc-dark">Horas de oscuridad</label><input type="number" id="cyc-dark" min="0.5" max="48" step="0.5" value="14"></div>
+    <div style="grid-column:1/-1"><label class="fl" for="cyc-anchor">Primer encendido</label><input type="datetime-local" id="cyc-anchor"></div>
+  </div>
+
+  <div class="grid2" style="margin-top:8px">
+    <!-- Se oculta en "Día natural" (ver ss-min-block en applyState): ahí el
+         far-red de alba/ocaso ya viene en la curva y este campo no hace nada.
+         El botón Guardar, en cambio, NO se puede ocultar: sigue guardando los
+         horarios del fotoperíodo. -->
+    <div id="ss-min-block"><label class="fl" for="sch-ramp">Amanecer/atardecer (min)</label><input type="number" id="sch-ramp" min="0" max="240" value="30"></div>
+    <div id="sch-save-cell" style="display:flex;align-items:flex-end;gap:8px"><button class="btn" id="sch-cancel" style="flex:0 0 auto;min-width:0;padding:12px 14px">Cancelar</button><button class="btn acc" id="sch-save" style="flex:1">Guardar</button></div>
+  </div>
+  <!-- Reemplaza a los dos bloques de abajo en modo "Día natural": esa curva ya
+       trae su propio far-red de alba/ocaso y ya arranca casi en cero. -->
+  <div id="natural-note" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;
+       background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.3);font-size:13px;line-height:1.5">
+    <b>Modo Día natural.</b> El amanecer/atardecer y la rampa de encendido ya vienen incluidos en la
+    curva del día, así que no se configuran aparte. El <b>brillo global</b> sigue regulando la
+    potencia final del equipo.
+  </div>
+
+  <div class="schon" id="fr-block" style="margin-top:12px;margin-bottom:0">
+    <div><b style="font-size:13px">Amanecer / atardecer (far red)</b>
+      <div class="foot" style="text-align:left;margin:0">Solo far red, <b>al 100 %</b>, durante los minutos configurados antes y después de cada fase de luz. Va siempre al máximo sin importar la receta: es un pulso fotobiológico, no parte de la mezcla.</div></div>
+    <button class="sw" id="sch-fr" role="switch" aria-checked="false" aria-label="Amanecer y atardecer"></button>
+  </div>
+
+  <!-- Rampa de encendido: arranque suave al abrir la ventana de luz. Es OTRA
+       cosa que el amanecer/atardecer far red — funciona aunque ése esté
+       apagado — y hasta ahora sólo se podía configurar desde la pantalla. -->
+  <div class="schon" id="onramp-block" style="margin-top:12px;margin-bottom:0">
+    <div><b style="font-size:13px">Rampa de encendido</b>
+      <div class="foot" style="text-align:left;margin:0">Al encender, la luz sube de 0 hasta el valor configurado en vez de saltar de golpe</div></div>
+    <button class="sw" id="onramp-en" role="switch" aria-checked="false" aria-label="Rampa de encendido"></button>
+  </div>
+  <div class="grid2" id="onramp-body" style="margin-top:8px;display:none">
+    <div><label class="fl" for="onramp-min">Duración (min, máx 20)</label><input type="number" id="onramp-min" min="0" max="20" step="1" value="10"></div>
+  </div>
+
+  <div style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px">
+    <div class="schon" style="margin-bottom:6px">
+      <div><b style="font-size:13px">Espectro dinámico</b>
+        <div class="foot" style="text-align:left;margin:0">El espectro va cambiando a lo largo del día (5 etapas)</div></div>
+      <button class="sw" id="dyn-en" role="switch" aria-checked="false" aria-label="Espectro dinámico"></button>
+    </div>
+    <div id="dyn-body" style="display:none">
+      <div class="row" style="margin-top:6px">
+        <button class="btn" id="dyn-natural">🌞 Día natural</button>
+        <button class="btn" id="dyn-custom">🎨 Personalizado</button>
+        <button class="btn" id="dyn-progs">📋 Programas</button>
+      </div>
+      <div class="row" id="dyn-chips" style="margin-top:8px"></div>
+      <div id="prog-panel" style="display:none">
+        <div class="row" id="prog-chips" style="margin-top:8px"></div>
+        <div class="row">
+          <button class="btn" id="prog-new">➕ Nuevo</button>
+          <button class="btn" id="prog-import">📂 Cargar archivo</button>
+          <button class="btn" id="prog-update">🔄 Desde internet</button>
+        </div>
+        <!-- Carga manual de la biblioteca. Sin esto, un equipo recién flasheado
+             abría Programas y no había nada, y la única salida era editar
+             localStorage desde la consola del navegador (CL-041). -->
+        <input type="file" id="prog-file" accept=".json,application/json" style="display:none">
+        <div id="prog-editor" style="display:none;border:1px solid var(--line);border-radius:9px;padding:10px;margin-top:8px">
+          <label class="fl" for="pe-name">Nombre del programa</label>
+          <input type="text" id="pe-name" placeholder="Mi programa">
+          <div class="foot" style="text-align:left;margin-top:10px">Mezcla del paso —
+            estos controles son del editor y <b>no tocan la luminaria</b>.</div>
+          <div id="pe-mix"></div>
+          <div class="row">
+            <button class="btn" id="pe-preview">👁 Previsualizar en la luminaria</button>
+          </div>
+          <div id="pe-steps" style="margin-top:8px"></div>
+          <div class="grid2" style="margin-top:8px">
+            <div><label class="fl" id="pe-h-label" for="pe-h">Hora del paso</label><input type="time" id="pe-h" value="08:00"></div>
+            <div style="display:flex;align-items:flex-end"><button class="btn" id="pe-add" style="width:100%">＋ Paso con sliders</button></div>
+          </div>
+          <div class="row">
+            <button class="btn acc" id="pe-save">💾 Guardar</button>
+            <button class="btn" id="pe-cancel">Cancelar</button>
+            <button class="btn off" id="pe-del" style="display:none">🗑 Borrar</button>
+          </div>
+        </div>
+      </div>
+      <div class="foot" id="dyn-info" style="text-align:left"></div>
+    </div>
+  </div>
+  <!-- Este campo controla la ventana de far-red de amanecer/atardecer
+       (Schedule.rampMin), NO la rampa de encendido. El texto anterior decia
+       "sube todos los canales gradualmente", que describe la rampa de
+       encendido — otro control, que vive en la pantalla del equipo. Quedo
+       desactualizado cuando se separaron las dos cosas el 2026-07-22. -->
+  <div class="foot" id="sch-info">Minutos de far-red antes del encendido y despues del apagado (solo si Amanecer/atardecer esta activo).</div>
+  <div id="sch-remain" style="color:var(--acc);font-size:12px;margin-top:3px;display:none"></div>
+  </div><!-- /sch-cfg -->
+</div>
+
+<div class="card h-sl">
+  <h2>WiFi</h2>
+  <!-- Estado real de la conexión. Faltaba: la app mostraba exactamente lo mismo
+       estuviera conectado o no, así que no había forma de saber a qué red está
+       el equipo ni con cuánta señal sin ir a mirar la pantalla física. Es la
+       misma información que muestra la pantalla. -->
+  <div id="wf-status" style="margin-bottom:10px;padding:10px 12px;border-radius:8px;
+       border:1px solid var(--line);font-size:14px;line-height:1.5"></div>
+  <div class="row" style="margin-bottom:8px">
+    <button class="btn" id="wf-scan">🔍 Buscar redes</button>
+  </div>
+  <!-- Region viva: el resultado del escaneo se queda escrito. Un toast dura
+       tres segundos y el escaneo dura veinte (UX-260908-11). -->
+  <div id="wf-scan-estado" role="status" aria-live="polite"
+       style="display:none;font-size:13px;line-height:1.5;margin-bottom:8px"></div>
+  <div id="wf-nets" style="display:none;margin-bottom:10px;max-height:160px;overflow-y:auto;border:1px solid var(--border-control);border-radius:8px"></div>
+  <div class="grid2">
+    <div><label class="fl" for="wf-ssid">Red</label><input type="text" id="wf-ssid" placeholder="MiWiFi"></div>
+    <div><label class="fl" for="wf-pass">Clave</label><input type="password" id="wf-pass"></div>
+  </div>
+  <div class="row"><button class="btn acc" id="wf-save">Conectar equipo a esta red</button></div>
+  <!-- Olvidar la red guardada: aparece sólo si hay una. Es la salida cuando el
+       equipo se muda de lugar y queda buscando para siempre una red que ya no
+       existe; sin esto había que reflashearlo. -->
+  <div class="row" id="wf-forget-row" style="display:none"><button class="btn" id="wf-forget">Olvidar la red guardada</button></div>
+  <div class="foot" style="margin-top:6px">El equipo reinicia al conectarse a la red. Reconectate a esa misma red para volver a abrirlo.<br>
+  Su red propia queda siempre encendida como respaldo: si el router se cae o te quedás sin internet, conectate directo a ella y seguís controlando todo.
+  Tiene clave: la ves en la pantalla del equipo, en Conex., o escaneás el QR de ahí y el teléfono se conecta solo.</div>
+</div>
+
+<div class="card" id="nube-card">
+  <h2>Control por internet</h2>
+  <div id="nu-estado" style="margin-bottom:10px;padding:10px 12px;border-radius:8px;
+    background:#161b22;border:1px solid var(--line);font-size:13px;line-height:1.5"></div>
+  <div id="nu-form" style="display:none">
+    <div><label class="fl" for="nu-clave">Clave de este equipo</label>
+      <input type="text" id="nu-clave" autocomplete="off"
+             placeholder="la que devolvió el alta, una sola vez"></div>
+    <div class="row">
+      <button class="btn acc" id="nu-guardar">Conectar a internet</button>
+      <button class="btn off" id="nu-apagar">Desactivar</button>
+    </div>
+    <div class="foot" style="text-align:left">La clave se genera al dar de alta el equipo
+      y se muestra una sola vez. Si se perdió, se genera otra y se vuelve a cargar.</div>
+  </div>
+  <div class="row"><button class="btn" id="nu-toggle">Configurar</button></div>
+</div>
+
+<div class="foot">fw <span id="fw">—</span> · hora equipo <span id="time">—</span> · <span id="ip">—</span></div>
+<!-- Renglon de operaciones. Es `sticky bottom:0`, asi que se pega al borde
+     inferior de la pantalla en cuanto hay algo que decir, sin importar donde
+     este mirando la persona. Antes era texto de 11 px en gris tenue —el mismo
+     estilo que las notas al pie—, y el resultado de una orden se leia como
+     una aclaracion menor (UX-260908-03). -->
+<div id="ops" style="display:none;text-align:left;position:sticky;bottom:0;z-index:20;
+  background:var(--card);border:1px solid var(--border-control);border-radius:9px;
+  padding:10px 12px;margin-top:10px;font-size:14px;line-height:1.6;
+  box-shadow:0 -4px 14px rgba(0,0,0,.45)" role="status" aria-live="polite"></div>
+<div class="toast" id="toast"></div>
+
+<script src="supabase.js"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script src="nube.js"></script>
+<script src="nube-ui.js"></script>
+</body>
+</html>
