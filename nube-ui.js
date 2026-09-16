@@ -112,6 +112,16 @@
   document.head.appendChild(css);
   document.body.appendChild(capa);
 
+  // La tarjeta «Control por internet» es el interruptor del enlace con la
+  // nube, y desde acá el enlace ya está encendido por definición: si se ve
+  // esta app es porque el equipo publica. Mostrarla acá confundía
+  // (2026-09-16: "esto no entiendo, ¿qué hace?").
+  {
+    const nu = $("nu-estado");
+    const tarjeta = nu && nu.closest(".card");
+    if (tarjeta) tarjeta.style.display = "none";
+  }
+
   const msg = (t, clase) => { const m = $("n-msg"); m.textContent = t || ""; m.className = clase || ""; };
 
   const PASOS = ["login", "vincular", "equipos"];

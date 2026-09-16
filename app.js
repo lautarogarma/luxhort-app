@@ -53,6 +53,14 @@ const almacen={
 // Para poder controlar el equipo hay que haber estado físicamente frente a él
 // alguna vez, aunque se esté en la misma WiFi.
 let authToken=almacen.leer("gl_token")||"";
+// El QR de la pantalla trae el codigo de acceso en la URL (?c=XXXXXXXX): con
+// eso la app se empareja sola al conectar, sin tipear. Se saca de la barra
+// enseguida para que no quede en el historial ni en un enlace compartido.
+let codigoDeQr="";
+try{
+  const q=new URLSearchParams(location.search);
+  if(q.get("c")){ codigoDeQr=q.get("c").trim().toUpperCase(); history.replaceState(null,"",location.pathname); }
+}catch(_){}
 // La orden que provocó el pedido de emparejamiento, para reenviarla una vez
 // que el equipo acepta el código. Sin esto, la primera acción del usuario se
 // perdía: emparejaba y tenía que volver a hacer lo que ya había hecho (UX-002).
@@ -1684,6 +1692,9 @@ function connect(){
       // El estado inicial ya llega solo (el equipo lo empuja al conectar via
       // WS_EVT_CONNECT), no hace falta pedirlo con get_state.
       send({cmd:"get_programs"});
+      // Vinimos del QR: emparejar ya, antes de que el usuario toque nada. Si
+      // ya habia permiso guardado no hace falta, y el codigo se descarta.
+      if(codigoDeQr){ if(!authToken) send({cmd:"auth",code:codigoDeQr}); codigoDeQr=""; }
       // Una conexión NO cambia por sí sola la fase del fotoperíodo: con la
       // fecha ya conocida, poner en hora sigue siendo una acción explícita del
       // usuario (botón del aviso de salud). La única excepción es el equipo que
