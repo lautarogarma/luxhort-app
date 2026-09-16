@@ -314,6 +314,9 @@
     };
 
     N.seguirEstado(id, (datos, edadSeg) => {
+      // La edad de la foto viaja dentro del estado: la tarjeta Estado la
+      // usa para avisar arriba de todo cuando lo que se ve es viejo.
+      datos.edadSeg = edadSeg;
       window.applyState(datos);
       const s = $("status");
       if (s) s.textContent = edadSeg < 60

@@ -347,13 +347,33 @@ function pintarResumen(st){
   const card=$("resumen"); if(!card||!st)return;
   card.style.display="";
 
-  const enc=(st.channels||[]).some(c=>c&&c.on&&c.pct>0);
+  const sc=st.schedule||{};
+  const ne=sc.enabled&&sc.next&&typeof sc.next.on==="boolean"?sc.next:null;
+  // "Encendida" con el mismo criterio que el indicador de la pantalla: dentro
+  // de la ventana de luz del fotoperíodo cuenta como encendida aunque los
+  // canales todavía estén por debajo del piso (rampa de encendido). Antes
+  // sólo miraba los canales y los dos indicadores se contradecían un rato.
+  const esDia=ne?!ne.on:null;
+  const enc=(st.channels||[]).some(c=>c&&c.on&&c.pct>0)||esDia===true;
   const dim=+st.dim||0;
   $("rs-luz").innerHTML=enc
     ? "<span style='color:var(--acc)'>● Encendida</span> <span style='color:var(--dim);font-weight:400;font-size:14px'>— brillo "+dim+"%</span>"
     : "<span style='color:var(--dim)'>○ Apagada</span>";
 
-  const sc=st.schedule||{};
+  // Las horas, dichas: "Enciende a las 06:00 · Apaga a las 20:00". En
+  // Superciclo (ciclo relativo) no hay horas fijas del día: se dice el
+  // próximo cambio con su hora. Pedido del 2026-09-16.
+  const hor=$("rs-horario");
+  if(hor){
+    let h="";
+    if(sc.enabled&&!sc.cyclemode&&sc.on!=null&&sc.off!=null&&sc.on!==sc.off)
+      h="Enciende a las <b>"+m2t(sc.on)+"</b> · Apaga a las <b>"+m2t(sc.off)+"</b>";
+    else if(sc.enabled&&ne&&st.time){
+      const tp=st.time.split(":"),tgt=((+tp[0])*60+(+tp[1])+(+ne.in||0))%1440;
+      h=(ne.on?"Enciende":"Apaga")+" a las <b>"+m2t(tgt)+"</b>";
+    }
+    hor.innerHTML=h; hor.style.display=h?"":"none";
+  }
   let rige;
   if(!sc.enabled) rige="Receta fija, sin fotoperíodo: luz continua.";
   else if(sc.specmode===1) rige="Espectro Día natural, dentro del fotoperíodo.";
@@ -381,7 +401,12 @@ function pintarResumen(st){
   // Una sola alerta, la mas grave primero.
   const al=$("rs-alerta");
   let msg="";
-  if(st.cfgfault) msg="⚠ "+st.cfgfault;
+  // Por internet, `edadSeg` la pone la capa de nube: es la edad de la foto.
+  // Una foto vieja se dice ANTES que nada — lo que se ve abajo puede no ser
+  // lo que el equipo tiene ahora (2026-09-16: la PC cambió cosas, el
+  // celular mostraba las de horas atrás y nada lo avisaba a la vista).
+  if(st.edadSeg>60) msg="⚠ Datos de hace "+fmtDur(Math.round(st.edadSeg))+": el equipo no está publicando. Lo que ves puede haber cambiado.";
+  else if(st.cfgfault) msg="⚠ "+st.cfgfault;
   else if(st.tqi===0||st.cal===false) msg="⚠ El equipo no tiene hora confiable: el horario puede no cumplirse.";
   else if(st.hw===false) msg="⚠ La placa de potencia no responde.";
   if(msg){al.style.display="";al.style.color="#e3b341";al.textContent=msg;}
