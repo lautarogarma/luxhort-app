@@ -93,8 +93,10 @@
         <div class="row" style="margin-top:12px">
           <button class="btn acc" id="n-vincular" type="button">Vincular equipo</button>
         </div>
-        <p class="nsub" style="margin-top:10px">El equipo tiene que estar encendido y con
-          internet: sólo se puede vincular uno que esté en línea.</p>
+        <p class="nsub" style="margin-top:10px">El equipo tiene que estar encendido, con
+          internet y <b>dado de alta en la nube</b>: en su app local (la de la red de casa),
+          pestaña Conexión, la tarjeta <b>Control por internet</b> tiene que decir
+          «Conectado». Si dice «Sin configurar», primero hay que cargarle su clave ahí.</p>
       </div>
 
       <div id="n-paso-equipos" style="display:none">
@@ -390,7 +392,16 @@
       await N.vincular($("n-codigo").value);
       msg("Equipo vinculado", "ok");
       await despuesDeEntrar();
-    } catch (e) { msg(e.message, "err"); }
+    } catch (e) {
+      // El mensaje de la base no puede distinguir "código mal" de "este equipo
+      // nunca publicó nada": la causa más común la primera vez es la segunda
+      // (2026-09-16), y hay que decirla.
+      msg(e.message + (/incorrecto/i.test(e.message)
+        ? " Si es la primera vez que vinculás este equipo, fijate que en su app local " +
+          "(Conexión → Control por internet) diga «Conectado»: si no tiene cargada su clave, " +
+          "no publica en la nube y ningún código va a servir."
+        : ""), "err");
+    }
     b.disabled = false; b.textContent = "Vincular equipo";
   };
 

@@ -484,10 +484,16 @@ function applyState(st){
         // algo accionable: el equipo se mudó de lugar y sigue buscando la red
         // de antes, y hasta que no se dice cuál es, el usuario no sabe qué
         // está pasando ni qué va a olvidar.
+        // n.fail = por qué no entra ("clave" / "nored" / "otro"): el equipo lo
+        // supo siempre y no lo decía (2026-09-16).
+        const why=n.fail==="clave"?"❌ La clave de la red es incorrecta: volvé a configurarla"
+                 :n.fail==="nored"?"❌ No se encuentra la red: revisá el nombre o el alcance"
+                 :n.fail==="otro" ?"❌ No se pudo conectar (motivo "+(n.failn|0)+")":"";
         w.innerHTML="⚠️ <b>Sin red</b>"+(n.off?" hace "+fmtDur(n.off):"")
+          +(why?"<br><span style='color:#f85149'>"+why+"</span>":"")
           +(n.cfg?"<br><span style='color:var(--dim)'>Busca <b>"+esc(n.cfg)+"</b></span>":"")
           +(n.next?"<br><span style='color:var(--dim)'>Reintenta en "+fmtDur(n.next)+"</span>":"");
-        w.style.borderColor="rgba(232,179,57,.5)";
+        w.style.borderColor=why?"rgba(248,81,73,.5)":"rgba(232,179,57,.5)";
       }else if(n.st==="Conectando"){
         w.innerHTML="🔄 Conectando"+(n.cfg?" a <b>"+esc(n.cfg)+"</b>":"")+"…";
         w.style.borderColor="var(--line)";

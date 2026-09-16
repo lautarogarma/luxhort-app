@@ -369,7 +369,10 @@ button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-
   <div id="wf-nets" style="display:none;margin-bottom:10px;max-height:160px;overflow-y:auto;border:1px solid var(--border-control);border-radius:8px"></div>
   <div class="grid2">
     <div><label class="fl" for="wf-ssid">Red</label><input type="text" id="wf-ssid" placeholder="MiWiFi"></div>
-    <div><label class="fl" for="wf-pass">Clave</label><input type="password" id="wf-pass"></div>
+    <!-- type=text a propósito: la clave se ve mientras se escribe (pedido del
+         2026-09-16, tras una instalación trabada por una letra mal tipeada). -->
+    <div><label class="fl" for="wf-pass">Clave</label><input type="text" id="wf-pass"
+      autocomplete="off" autocapitalize="none" spellcheck="false"></div>
   </div>
   <div class="row"><button class="btn acc" id="wf-save">Conectar equipo a esta red</button></div>
   <!-- Olvidar la red guardada: aparece sólo si hay una. Es la salida cuando el

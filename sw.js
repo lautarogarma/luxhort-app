@@ -9,7 +9,7 @@
 // (build_app_nube.py lo calcula), asi que cada publicacion nueva tiene su
 // propio nombre y activate() borra las viejas solo -- sin depender de que
 // alguien suba un numero a mano.
-const C = 'luxh-remoto-72956cf6d8';
+const C = 'luxh-remoto-719463bb28';
 
 self.addEventListener('install', e => { self.skipWaiting(); });
 self.addEventListener('activate', e => {
