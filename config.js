@@ -24,4 +24,19 @@ window.CFG = {
   // Empieza con "sb_publishable_". Los proyectos viejos usan en su lugar un
   // JWT largo que empieza con "eyJ"; los dos sirven, es el mismo permiso.
   anon: "sb_publishable_XiAue8O59_-XY-8QJHfIfw_b5Ko_y2u",
+
+  // ── Ingreso con Auth0 (ver AUTH0.md) ──
+  //  El ingreso —Google, correo y clave, confirmación, recuperación— lo hace
+  //  la página alojada de Auth0; Supabase acepta sus tokens como proveedor
+  //  externo. Los tres valores son públicos, igual que los de arriba.
+  auth0: {
+    // Applications → LUXHorticultura → Settings → Domain (xxxx.us.auth0.com)
+    domain: "dev-egvuzr7mi0kbqtn3.us.auth0.com",
+    // Applications → LUXHorticultura → Settings → Client ID
+    clientId: "uRUZoCqW47tjDKHyy1CspTUFHDJZsnob",
+    // Applications → APIs → el Identifier de la API creada para esto. Tiene
+    // que ser EXACTAMENTE este texto: es lo que hace que el token sea un JWT
+    // que Supabase pueda verificar y no un token opaco.
+    audience: "https://luxhort-nube",
+  },
 };

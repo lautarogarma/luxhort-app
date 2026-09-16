@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="LUXHorticultura">
 <title>LUXHorticultura — control remoto</title>
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src https://tptdmbfmbgfzfxlkkbja.supabase.co; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; connect-src https://tptdmbfmbgfzfxlkkbja.supabase.co https://dev-egvuzr7mi0kbqtn3.us.auth0.com; base-uri 'none'; form-action 'none'">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icon.svg">
 <style>
@@ -415,6 +415,7 @@ button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-
 <div class="toast" id="toast"></div>
 
 <script src="supabase.js"></script>
+<script src="auth0.js"></script>
 <script src="config.js"></script>
 <script src="app.js"></script>
 <script src="nube.js"></script>

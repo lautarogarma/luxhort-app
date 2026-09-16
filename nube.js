@@ -13,6 +13,16 @@
 //  formato ni un segundo manejador: la cadena de validación del equipo no
 //  puede divergir porque no hay dos.
 //
+//  ── La cuenta la maneja Auth0, los datos Supabase ──
+//  El ingreso (Google, correo y clave, confirmación del correo, clave
+//  olvidada) es la página alojada de Auth0: no hay formularios propios que
+//  mantener ni correos que redactar, y se ve como cualquier ingreso conocido.
+//  Supabase acepta el token de Auth0 como proveedor externo, así que las
+//  políticas de la base siguen decidiendo quién ve qué — con el `sub` del
+//  token como identidad (ver supabase/auth-externo.sql). La biblioteca de
+//  Supabase recibe ese token por `accessToken`; con esa opción su propio
+//  módulo de cuentas queda apagado y acá no se usa.
+//
 //  ── El equipo no recibe: busca ──
 //  Un comando se INSERTA en la tabla `comandos` y queda pendiente. El equipo
 //  pregunta cada pocos segundos, lo ejecuta y escribe qué pasó. Por eso acá
@@ -34,9 +44,136 @@
     return;
   }
 
-  const sb = window.supabase.createClient(CFG.url, CFG.anon, {
-    auth: { persistSession: true, autoRefreshToken: true },
-  });
+  // ------------------------------------------------------------
+  //  Cuenta (Auth0)
+  // ------------------------------------------------------------
+  const A0 = CFG.auth0 || {};
+  const configurado = !!(A0.domain && A0.clientId && A0.audience && window.auth0);
+  if (!configurado) console.warn("[nube] falta la configuración de Auth0 en config.js (ver supabase/AUTH0.md)");
+
+  // A dónde vuelve Auth0 después de entrar o salir: esta misma página, sin
+  // query ni hash. Tiene que estar en «Allowed Callback URLs» y «Allowed
+  // Logout URLs» de la aplicación en Auth0, exacta.
+  const RETORNO = location.origin + location.pathname;
+
+  // El cliente se crea una vez y es asíncrono: todo lo que lo usa espera
+  // esta promesa. `localstorage` para que la sesión sobreviva a cerrar la
+  // pestaña (y a la PWA instalada); los refresh tokens para renovarla sin
+  // iframes ocultos, que la CSP de la app no permite.
+  const cliente = configurado
+    ? window.auth0.createAuth0Client({
+        domain: A0.domain,
+        clientId: A0.clientId,
+        cacheLocation: "localstorage",
+        useRefreshTokens: true,
+        authorizationParams: {
+          redirect_uri: RETORNO,
+          audience: A0.audience,
+          ui_locales: "es",
+        },
+      })
+    : Promise.resolve(null);
+
+  // El token que se le manda a Supabase en cada consulta. Es el ID TOKEN, no
+  // el access token: Supabase lo pide así porque Auth0 quita en silencio los
+  // claims sin namespace de los access tokens, y el `role` que pone la acción
+  // post-login viajaría vacío (docs de Supabase, third-party/auth0).
+  //
+  // getTokenSilently() va primero igual: es lo que renueva la sesión con el
+  // refresh token cuando el access token venció, y de paso trae un ID token
+  // nuevo. Pero los dos vencen por separado (ID token 10 h, access token 24 h
+  // por defecto), así que si el ID token ya venció con el access token vivo,
+  // se fuerza la renovación saltando el caché.
+  //
+  // Sin sesión devuelve nulo y la biblioteca manda la clave pública sola: las
+  // políticas no dejan ver nada, que es lo correcto.
+  async function token() {
+    const c = await cliente;
+    if (!c) return null;
+    try {
+      await c.getTokenSilently();
+      let claims = await c.getIdTokenClaims();
+      if (!claims || (claims.exp || 0) * 1000 < Date.now() + 60000) {
+        await c.getTokenSilently({ cacheMode: "off" });
+        claims = await c.getIdTokenClaims();
+      }
+      return claims && claims.__raw ? claims.__raw : null;
+    } catch (_) { return null; }
+  }
+
+  async function sesion() {
+    const c = await cliente;
+    if (!c) return false;
+    // Sin token utilizable no hay sesión, aunque el caché diga que sí: el
+    // refresh token pudo vencer o haber sido revocado.
+    if (!(await c.isAuthenticated())) return false;
+    return (await token()) !== null;
+  }
+
+  // Manda a la página de ingreso de Auth0. No devuelve: la página cambia.
+  async function entrar() {
+    if (!configurado) throw new Error("Falta configurar el ingreso (Auth0) en config.js — ver supabase/AUTH0.md");
+    const c = await cliente;
+    await c.loginWithRedirect();
+  }
+
+  // Cierra la sesión acá Y en Auth0, y vuelve a esta página.
+  async function salir() {
+    const c = await cliente;
+    if (!c) return;
+    await c.logout({ logoutParams: { returnTo: RETORNO } });
+  }
+
+  // Quién está adentro: { email, name, sub }. La app mostraba equipos sin decir
+  // nunca con qué cuenta se entró: con dos cuentas —la de prueba y la del
+  // cliente— no había forma de saber cuál estaba operando el equipo.
+  async function usuario() {
+    const c = await cliente;
+    if (!c) return null;
+    try { return (await c.getUser()) || null; } catch (_) { return null; }
+  }
+
+  // La vuelta desde Auth0. Devuelve nulo si no venimos de ahí o si entró
+  // bien, o el texto del error si el ingreso fue rechazado. Deja la URL
+  // limpia en los dos casos: el `code` es de un solo uso y recargar con él
+  // en la barra daría un error que no es de nadie.
+  async function procesarRetorno() {
+    const q = new URLSearchParams(location.search);
+    if (!q.has("code") && !q.has("error")) return null;
+    let error = null;
+    if (q.has("error")) {
+      error = traducirIngreso(q.get("error"), q.get("error_description"));
+    } else {
+      try {
+        const c = await cliente;
+        if (c) await c.handleRedirectCallback();
+      } catch (e) {
+        error = traducirIngreso(e.error, e.error_description || e.message);
+      }
+    }
+    history.replaceState(null, "", location.pathname);
+    return error;
+  }
+
+  // Los rechazos de Auth0 vienen como código + descripción en inglés. La
+  // acción post-login del proyecto (ver AUTH0.md) rechaza con la descripción
+  // «correo_sin_confirmar» a quien todavía no abrió el correo de confirmación.
+  function traducirIngreso(codigo, desc) {
+    const d = String(desc || "");
+    if (/correo_sin_confirmar/.test(d))
+      return "Te mandamos un correo para confirmar tu cuenta. Abrí el enlace que trae y volvé a tocar Ingresar.";
+    if (codigo === "access_denied")  return "No se pudo entrar: " + (d || "acceso denegado");
+    if (codigo === "unauthorized")   return "Esta cuenta no tiene acceso: " + (d || "");
+    if (codigo === "invalid_state" || /state/i.test(d))
+      return "El ingreso venció o se abrió en otra pestaña: tocá Ingresar de nuevo.";
+    if (/Failed to fetch|NetworkError/i.test(d)) return "Sin internet";
+    return d || codigo || "No se pudo entrar";
+  }
+
+  // ------------------------------------------------------------
+  //  Datos (Supabase, con el token de Auth0)
+  // ------------------------------------------------------------
+  const sb = window.supabase.createClient(CFG.url, CFG.anon, { accessToken: token });
 
   // Cada cuánto se relee el estado. El equipo lo publica cada 15 s, así que
   // pedirlo más seguido no trae nada nuevo — sólo gasta datos del teléfono.
@@ -55,72 +192,12 @@
   // pinta si sigue siendo el más nuevo cuando la respuesta vuelve.
   let estadoTick = 0;
 
-  // ------------------------------------------------------------
-  //  Cuenta
-  // ------------------------------------------------------------
-  async function sesion() {
-    const { data } = await sb.auth.getSession();
-    return data.session || null;
-  }
-
-  async function entrar(correo, clave) {
-    const { data, error } = await sb.auth.signInWithPassword({
-      email: correo, password: clave,
-    });
-    if (error) throw new Error(traducir(error.message));
-    return data.session;
-  }
-
-  async function registrarse(correo, clave) {
-    const { data, error } = await sb.auth.signUp({
-      email: correo, password: clave,
-    });
-    if (error) throw new Error(traducir(error.message));
-    // Con confirmación por correo activada no viene sesión: hay que ir al
-    // buzón. Se distingue para poder decirlo, en vez de dejar la pantalla
-    // como si no hubiera pasado nada.
-    return { sesion: data.session, confirmar: !data.session };
-  }
-
-  async function salir() { await sb.auth.signOut(); }
-
-  // ── Recuperar la clave (UX-260908-12) ──
-  //  No había ninguna: quien olvidaba la clave se quedaba afuera del producto
-  //  y la única salida era escribirle a alguien. Supabase manda un correo con
-  //  un enlace que vuelve a esta misma página ya con sesión y en modo
-  //  «recuperación»; ahí se pide la clave nueva.
-  //
-  //  El resultado NO distingue si el correo existe: decir «esa cuenta no
-  //  existe» convierte el formulario en un verificador de correos registrados.
-  async function recuperar(correo) {
-    const { error } = await sb.auth.resetPasswordForEmail(String(correo || "").trim(), {
-      redirectTo: location.origin + location.pathname,
-    });
-    if (error) throw new Error(traducir(error.message));
-  }
-
-  async function cambiarClave(nueva) {
-    const { error } = await sb.auth.updateUser({ password: nueva });
-    if (error) throw new Error(traducir(error.message));
-  }
-
-  // Quién está adentro. La app mostraba equipos sin decir nunca con qué cuenta
-  // se entró: con dos cuentas —la de prueba y la del cliente— no había forma
-  // de saber cuál estaba operando el equipo.
-  async function usuario() {
-    const s = await sesion();
-    return s ? s.user : null;
-  }
-
-  // Los mensajes de Supabase vienen en inglés y son de programador. Se
+  // Los mensajes de la base vienen en inglés y son de programador. Se
   // traducen los que un usuario puede provocar; el resto pasa tal cual, que
   // es mejor que un "error desconocido" que no deja buscar nada.
   function traducir(m) {
     const t = String(m || "");
-    if (/Invalid login credentials/i.test(t)) return "Correo o clave incorrectos";
-    if (/Email not confirmed/i.test(t)) return "Falta confirmar el correo: mirá tu buzón";
-    if (/User already registered/i.test(t)) return "Ese correo ya tiene cuenta — probá entrar";
-    if (/Password should be at least/i.test(t)) return "La clave es muy corta (mínimo 6)";
+    if (/JWT|JWS|token|expired|Unauthorized/i.test(t)) return "Sesión vencida: volvé a entrar";
     if (/rate limit|too many/i.test(t)) return "Demasiados intentos: esperá un rato";
     if (/Failed to fetch|NetworkError/i.test(t)) return "Sin internet";
     return t;
@@ -167,11 +244,13 @@
   //  Comandos
   // ------------------------------------------------------------
   async function enviarComando(id, payload) {
-    const s = await sesion();
-    if (!s) throw new Error("Sesión vencida: volvé a entrar");
+    if (!(await sesion())) throw new Error("Sesión vencida: volvé a entrar");
 
+    // `pedido_por` NO se manda: lo pone la base con quién tiene la sesión
+    // (default de la columna, ver auth-externo.sql). Mandarlo desde acá era
+    // una forma de equivocarse que ya no existe.
     const { data, error } = await sb.from("comandos")
-      .insert({ equipo_id: id, pedido_por: s.user.id, payload })
+      .insert({ equipo_id: id, payload })
       .select("id").single();
     if (error) throw new Error(traducir(error.message));
 
@@ -216,7 +295,8 @@
   // ------------------------------------------------------------
   window.NUBE = {
     disponible: true,
-    sb, sesion, entrar, registrarse, salir, recuperar, cambiarClave, usuario,
+    configurado,
+    sb, sesion, entrar, salir, usuario, procesarRetorno,
     listarEquipos, vincular, leerEstado, enviarComando,
     // Cuánto espera esta capa el acuse del equipo. La app ajusta su propio
     // plazo con este número en vez de suponerlo (UX-260908-03).

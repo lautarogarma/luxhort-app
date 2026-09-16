@@ -1,10 +1,18 @@
 // ============================================================
 //  nube-ui.js — cuenta, equipos y vinculación en el despliegue alojado
 // ============================================================
-//  Se carga DESPUÉS de la app. Su trabajo es poner adelante las tres
-//  pantallas que sólo existen cuando se entra desde internet —ingresar,
-//  elegir equipo, vincular uno nuevo— y después desaparecer: a partir de ahí
-//  la app es la misma de siempre, con el estado llegando por otro lado.
+//  Se carga DESPUÉS de la app. Su trabajo es poner adelante las pantallas
+//  que sólo existen cuando se entra desde internet —ingresar, elegir equipo,
+//  vincular uno nuevo— y después desaparecer: a partir de ahí la app es la
+//  misma de siempre, con el estado llegando por otro lado.
+//
+//  ── El ingreso no se dibuja acá ──
+//  Tocar «Ingresar» manda a la página alojada de Auth0: ahí viven Google, el
+//  correo y la clave, «¿olvidaste tu clave?» y la confirmación del correo,
+//  hechos y en español. Acá queda un botón y el mensaje de vuelta si el
+//  ingreso fue rechazado. Antes había cuatro formularios propios (entrar,
+//  crear cuenta, recuperar, clave nueva) y cada uno era una forma de quedar
+//  a medias (2026-09-16: el correo de confirmación llevaba a localhost).
 //
 //  ── Por qué reemplaza `send` en vez de tener botones propios ──
 //  La app entera ya sabe pedir cosas: `send({cmd:...})`. Cambiando SÓLO a
@@ -34,55 +42,15 @@
   capa.innerHTML = `
     <div class="ncard">
       <h1 class="ntitulo" id="n-titulo">LUXHorticultura</h1>
-      <p class="nsub" id="n-sub">Entrá para controlar tus equipos desde cualquier lado</p>
+      <p class="nsub" id="n-sub">Controlá tus equipos desde cualquier lado</p>
       <div id="n-cuenta" style="display:none"></div>
 
       <div id="n-paso-login">
-        <button class="btn nbtn-google" id="n-google" type="button">
-          <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#4285F4" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#34A853" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.02-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M3.98 10.72a5.4 5.4 0 0 1 0-3.44V4.95H.96a9 9 0 0 0 0 8.1l3.02-2.33z"/><path fill="#EA4335" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58C13.46.9 11.43 0 9 0A9 9 0 0 0 .96 4.95l3.02 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
-          Continuar con Google
-        </button>
-        <div class="nsep"><span>o con tu correo</span></div>
-        <label class="fl" for="n-correo">Correo</label>
-        <input type="email" id="n-correo" autocomplete="email" placeholder="vos@ejemplo.com">
-        <label class="fl" for="n-clave" style="margin-top:8px">Clave</label>
-        <input type="password" id="n-clave" autocomplete="current-password" placeholder="Mínimo 6 caracteres">
-        <div class="row" style="margin-top:12px">
-          <button class="btn acc" id="n-entrar" type="button">Entrar</button>
-        </div>
         <div class="row">
-          <button class="btn" id="n-crear" type="button">Crear una cuenta</button>
+          <button class="btn acc nbtn-entrar" id="n-entrar" type="button">Ingresar</button>
         </div>
-        <div class="row" style="margin-top:6px">
-          <button class="nlink" id="n-olvide" type="button">¿Olvidaste tu clave?</button>
-        </div>
-      </div>
-
-      <!-- Recuperación de clave. Faltaba por completo: quien olvidaba la clave
-           no tenía ninguna salida dentro del producto (UX-260908-12). -->
-      <div id="n-paso-recuperar" style="display:none">
-        <p class="nsub">Te mandamos un enlace por correo para poner una clave nueva.</p>
-        <label class="fl" for="n-rec-correo">Correo</label>
-        <input type="email" id="n-rec-correo" autocomplete="email" placeholder="vos@ejemplo.com">
-        <div class="row" style="margin-top:12px">
-          <button class="btn acc" id="n-rec-enviar" type="button">Enviar el enlace</button>
-        </div>
-        <div class="row">
-          <button class="btn" id="n-rec-volver" type="button">← Volver</button>
-        </div>
-      </div>
-
-      <!-- Vuelta del enlace del correo: Supabase deja una sesión de
-           recuperación y acá se elige la clave nueva. -->
-      <div id="n-paso-nueva" style="display:none">
-        <p class="nsub">Elegí tu clave nueva.</p>
-        <label class="fl" for="n-nueva">Clave nueva</label>
-        <input type="password" id="n-nueva" autocomplete="new-password" placeholder="Mínimo 6 caracteres">
-        <label class="fl" for="n-nueva2" style="margin-top:8px">Repetila</label>
-        <input type="password" id="n-nueva2" autocomplete="new-password">
-        <div class="row" style="margin-top:12px">
-          <button class="btn acc" id="n-nueva-ok" type="button">Guardar la clave</button>
-        </div>
+        <p class="nsub" style="margin-top:12px">Se abre la página segura de ingreso.
+          Podés entrar con tu cuenta de Google o crear una con tu correo.</p>
       </div>
 
       <div id="n-paso-vincular" style="display:none">
@@ -122,27 +90,8 @@
     #nube-capa .ntitulo{font-size:22px;margin-bottom:4px}
     #nube-capa .nsub{color:var(--dim);font-size:13.5px;line-height:1.5;margin-bottom:14px}
     #nube-capa input{margin-bottom:2px}
-    /* Chrome pinta los campos autocompletados de BLANCO con texto oscuro, y
-       sobre un tema oscuro eso se ve como un error de la pagina. No hay
-       propiedad para cambiar el fondo: el truco conocido es una sombra
-       interior enorme del color que uno quiere, mas el color del texto
-       forzado por -webkit-text-fill-color. La transicion larga evita el
-       parpadeo blanco del primer cuadro. */
-    #nube-capa input:-webkit-autofill,
-    #nube-capa input:-webkit-autofill:hover,
-    #nube-capa input:-webkit-autofill:focus{
-      -webkit-box-shadow:0 0 0 1000px #0d1117 inset !important;
-      -webkit-text-fill-color:var(--tx) !important;
-      caret-color:var(--tx);
-      transition:background-color 9999s ease-in-out 0s}
-    #nube-capa .nsep{display:flex;align-items:center;gap:10px;color:var(--dim);
-      font-size:12px;margin:14px 0}
-    #nube-capa .nsep::before,#nube-capa .nsep::after{content:"";flex:1;height:1px;background:var(--line)}
-    /* El botón de Google va en blanco a propósito: es el que la gente
-       reconoce de memoria, y disfrazarlo del resto de la interfaz lo vuelve
-       un botón más entre muchos. */
-    .nbtn-google{background:#fff !important;color:#1f1f1f !important;border-color:#dadce0 !important;
-      display:flex;align-items:center;justify-content:center;gap:10px;font-weight:600}
+    /* Un solo botón, grande: es lo único que hay que hacer en esta pantalla. */
+    .nbtn-entrar{min-height:52px;font-size:17px;font-weight:700}
     #n-msg{font-size:13.5px;line-height:1.5;margin-top:12px;padding:0}
     #n-msg.err{color:#ff9d95}
     #n-msg.ok{color:var(--acc)}
@@ -151,11 +100,6 @@
       border-radius:9px;padding:10px 14px;margin-top:8px;cursor:pointer;text-align:left}
     .nequipo small{display:block;color:var(--dim);font-size:11.5px;font-weight:400}
     .npunto{width:9px;height:9px;border-radius:50%;flex:0 0 9px}
-    /* Enlace de texto, no botón: es una salida secundaria y no compite con
-       Entrar. Sigue midiendo 44 px de alto para poder tocarlo. */
-    .nlink{background:none;border:0;color:#58a6ff;font-size:13.5px;cursor:pointer;
-      padding:12px 4px;min-height:44px;text-decoration:underline;flex:1}
-    .nlink:focus-visible{outline:3px solid var(--focus,#58a6ff);outline-offset:2px;border-radius:6px}
     /* Con qué cuenta se entró. Se mostraba la lista de equipos sin decirlo
        nunca; con dos cuentas no había forma de saber cuál estaba operando. */
     #n-cuenta{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim);
@@ -170,12 +114,11 @@
 
   const msg = (t, clase) => { const m = $("n-msg"); m.textContent = t || ""; m.className = clase || ""; };
 
-  const PASOS = ["login", "recuperar", "nueva", "vincular", "equipos"];
+  const PASOS = ["login", "vincular", "equipos"];
   // Título de cada paso, para que el diálogo se anuncie por lo que hace y no
   // siempre por el nombre del producto.
   const TITULOS = {
-    login: "LUXHorticultura", recuperar: "Recuperar la clave",
-    nueva: "Clave nueva", vincular: "Vincular un equipo", equipos: "Tus equipos",
+    login: "LUXHorticultura", vincular: "Vincular un equipo", equipos: "Tus equipos",
   };
   let pasoActual = "login";
 
@@ -241,100 +184,28 @@
   }
 
   // ------------------------------------------------------------
-  //  Entrar
+  //  Entrar y salir
   // ------------------------------------------------------------
-  $("n-google").onclick = async () => {
-    msg("");
-    try {
-      const { error } = await N.sb.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: location.origin + location.pathname },
-      });
-      if (error) throw error;
-    } catch (e) {
-      // El caso frecuente no es un error de red: es que el proveedor no está
-      // habilitado todavía en el proyecto. Decirlo evita mandar a revisar la
-      // clave, que está bien.
-      msg(/provider is not enabled/i.test(e.message)
-        ? "El ingreso con Google todavía no está habilitado en el proyecto."
-        : e.message, "err");
-    }
-  };
-
   $("n-entrar").onclick = async () => {
     const b = $("n-entrar"); msg("");
-    b.disabled = true; b.textContent = "Entrando…";
-    try {
-      await N.entrar($("n-correo").value.trim(), $("n-clave").value);
-      await despuesDeEntrar();
-    } catch (e) { msg(e.message, "err"); }
-    b.disabled = false; b.textContent = "Entrar";
+    b.disabled = true; b.textContent = "Abriendo el ingreso…";
+    try { await N.entrar(); }   // no vuelve: la página cambia
+    catch (e) { msg(e.message, "err"); b.disabled = false; b.textContent = "Ingresar"; }
   };
 
-  $("n-crear").onclick = async () => {
-    const b = $("n-crear"); msg("");
-    const correo = $("n-correo").value.trim(), clave = $("n-clave").value;
-    if (!correo || clave.length < 6) {
-      msg("Poné tu correo y una clave de al menos 6 caracteres", "err"); return;
-    }
-    b.disabled = true; b.textContent = "Creando…";
-    try {
-      const r = await N.registrarse(correo, clave);
-      if (r.confirmar) msg("Cuenta creada. Confirmá el correo que te mandamos y volvé a entrar.", "ok");
-      else await despuesDeEntrar();
-    } catch (e) { msg(e.message, "err"); }
-    b.disabled = false; b.textContent = "Crear una cuenta";
-  };
-
-  $("n-salir").onclick = async () => {
-    N.dejarDeSeguir(); await N.salir(); location.reload();
-  };
-
-  // ------------------------------------------------------------
-  //  Recuperar la clave
-  // ------------------------------------------------------------
-  $("n-olvide").onclick = () => {
-    $("n-rec-correo").value = $("n-correo").value.trim();
-    paso("recuperar"); msg("");
-  };
-  $("n-rec-volver").onclick = () => { paso("login"); msg(""); };
-
-  $("n-rec-enviar").onclick = async () => {
-    const b = $("n-rec-enviar"), correo = $("n-rec-correo").value.trim();
-    if (!correo) { msg("Escribí tu correo", "err"); return; }
-    b.disabled = true; b.textContent = "Enviando…";
-    try {
-      await N.recuperar(correo);
-      // El mismo mensaje exista o no la cuenta: si dijera «ese correo no está
-      // registrado», el formulario sería un verificador de qué correos tienen
-      // cuenta acá, para cualquiera que quiera preguntarle.
-      msg("Si ese correo tiene cuenta, va a llegarle un enlace para poner una "
-        + "clave nueva. Revisá también el correo no deseado.", "ok");
-    } catch (e) { msg(e.message, "err"); }
-    b.disabled = false; b.textContent = "Enviar el enlace";
-  };
-
-  $("n-nueva-ok").onclick = async () => {
-    const b = $("n-nueva-ok"), c1 = $("n-nueva").value, c2 = $("n-nueva2").value;
-    if (c1.length < 6) { msg("La clave nueva necesita al menos 6 caracteres", "err"); return; }
-    if (c1 !== c2) { msg("Las dos claves no coinciden", "err"); return; }
-    b.disabled = true; b.textContent = "Guardando…";
-    try {
-      await N.cambiarClave(c1);
-      msg("Clave cambiada", "ok");
-      $("n-nueva").value = $("n-nueva2").value = "";
-      await despuesDeEntrar();
-    } catch (e) { msg(e.message, "err"); }
-    b.disabled = false; b.textContent = "Guardar la clave";
-  };
+  // Cerrar sesión también cierra la de Auth0 y vuelve a esta página limpia.
+  const cerrarSesion = async () => { N.dejarDeSeguir(); await N.salir(); };
+  $("n-salir").onclick = cerrarSesion;
 
   // ------------------------------------------------------------
   //  Equipos
   // ------------------------------------------------------------
   async function despuesDeEntrar() {
     msg("");
-    try { const u = await N.usuario(); correoActual = (u && u.email) || ""; }
-    catch (_) { correoActual = ""; }
+    try {
+      const u = await N.usuario();
+      correoActual = (u && (u.email || u.name)) || "";
+    } catch (_) { correoActual = ""; }
 
     let equipos = [];
     try { equipos = await N.listarEquipos(); }
@@ -354,8 +225,8 @@
       // ── El nombre del equipo NO se interpola en HTML ──
       //  Lo elige un miembro del equipo y viaja por la base: un nombre como
       //  `<img src=x onerror=...>` se ejecutaria en el origen de la app
-      //  alojada, donde vive la sesion de Supabase. Se arma con nodos y
-      //  textContent, que no interpreta nada.
+      //  alojada, donde vive la sesion. Se arma con nodos y textContent, que
+      //  no interpreta nada.
       const b = document.createElement("button");
       b.className = "nequipo";
       const envoltorio = document.createElement("span");
@@ -465,8 +336,6 @@
     volver.textContent = "← Mis equipos";
     volver.onclick = () => {
       N.dejarDeSeguir();
-      // Vuelve al plazo local: si desde acá se opera otro equipo por WebSocket
-      // —no pasa hoy, pero el estado global no debería quedar mal puesto—.
       capa.style.display = "flex";
       despuesDeEntrar();
     };
@@ -479,42 +348,25 @@
     const salir = document.createElement("button");
     salir.className = "btn";
     salir.textContent = "Cerrar sesión";
-    salir.onclick = async () => { N.dejarDeSeguir(); await N.salir(); location.reload(); };
+    salir.onclick = cerrarSesion;
     barra.appendChild(salir);
   }
 
   // ------------------------------------------------------------
   //  Arranque
   // ------------------------------------------------------------
-  // La vuelta del enlace de recuperación llega con sesión pero NO hay que
-  // entrar: hay que pedir la clave nueva. Supabase lo avisa con este evento, y
-  // el `type=recovery` del hash es el respaldo por si el evento llega antes de
-  // que este archivo se haya cargado.
-  let recuperando = /(^|[#&?])type=recovery(&|$)/.test(location.hash + location.search);
-  N.sb.auth.onAuthStateChange((evento) => {
-    if (evento !== "PASSWORD_RECOVERY") return;
-    recuperando = true;
-    history.replaceState(null, "", location.pathname);
-    capa.style.display = "flex";
-    paso("nueva");
-    msg("Elegí una clave nueva para tu cuenta.", "ok");
-  });
-
   (async () => {
     paso("login");
-    // Vuelta del ingreso con Google: Supabase deja la sesión en la URL.
+    if (!N.configurado) {
+      msg("El ingreso todavía no está configurado (faltan los datos de Auth0 en config.js).", "err");
+      return;
+    }
     try {
-      const s = await N.sesion();
-      if (recuperando) {
-        history.replaceState(null, "", location.pathname);
-        paso("nueva");
-        msg("Elegí una clave nueva para tu cuenta.", "ok");
-        return;
-      }
-      if (s) {
-        history.replaceState(null, "", location.pathname);
-        await despuesDeEntrar();
-      }
+      // Si venimos de la página de Auth0, esto consume el código de la URL y
+      // deja la sesión lista — o devuelve el motivo del rechazo.
+      const rechazo = await N.procesarRetorno();
+      if (rechazo) { msg(rechazo, "err"); return; }
+      if (await N.sesion()) await despuesDeEntrar();
     } catch (e) { msg(e.message, "err"); }
   })();
 })();
