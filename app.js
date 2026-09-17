@@ -101,7 +101,7 @@ function buildChannels(){
     // chico "UV 365+395nm". La columna mide 64 px, asi que el nombre canonico
     // completo no entra: va partido, y entero en el aria-label, en el grafico
     // y en las confirmaciones.
-    d.innerHTML=`<div class="nm" title="${CH_NOMBRE[i]}">${CH_CORTO[i][0]}<small>${CH_CORTO[i][1]}</small></div>
+    d.innerHTML=`<div class="nm" title="${CH_NOMBRE[i]}">${CH_CORTO[i][0]}<small>${CH_CORTO[i][1]}</small><small class="ch-nota" id="nota${i}" style="display:none;color:#e3b341"></small></div>
       <div class="sl-cell"><input type="range" id="sl${i}" min="0" max="100" step="1" value="0">
       <div class="bar" id="bar${i}" style="--cc:var(${COLORS[i]});--p:0%"></div></div>
       <div class="pct pc" id="pc${i}">0%</div>
@@ -173,8 +173,13 @@ function pintarSw(el,on){
   el.setAttribute("role","switch");
   el.setAttribute("aria-checked",on?"true":"false");
 }
-function paintCh(i,pct,on){
-  if(pct!=null){$("sl"+i).value=pct;$("pc"+i).textContent=Math.round(pct)+"%";$("bar"+i).style.setProperty("--p",pct+"%");if(pct>0.5)chLastPct[i]=pct;}
+// `real` (opcional): lo que SALE del canal ahora, para la barrita de abajo.
+// El slider y el numero son la RECETA —lo que la persona puso—; sin esto, el
+// slider mostraba la salida (receta x brillo, o 0 bajo el minimo del 10 %) y
+// "cambiaba solo" apenas llegaba el estado (2026-09-17: 5 % de UVA -> 0;
+// 30 % con brillo 41 % -> 12).
+function paintCh(i,pct,on,real){
+  if(pct!=null){$("sl"+i).value=pct;$("pc"+i).textContent=Math.round(pct)+"%";$("bar"+i).style.setProperty("--p",(real!=null?real:pct)+"%");if(pct>0.5)chLastPct[i]=pct;}
   if(on!=null)pintarSw($("sw"+i),on);
   scheduleSpd();
 }
@@ -509,8 +514,10 @@ function applyState(st){
         const r=+n.rssi||0;
         const cal=r>-60?"señal buena":r>-75?"señal media":"señal débil";
         const ico=r>-60?"●●●":r>-75?"●●○":"●○○";
-        w.innerHTML="✅ Conectado a <b>"+esc(n.ssid||"")+"</b><br>"
-          +"<span style='color:var(--dim)'>"+esc(n.ip||"")+" · "+ico+" "+r+" dBm · "+cal
+        // El equipo publica el SSID en st.ssid y la IP en st.wifi (no dentro
+        // de net): la tarjeta decia "Conectado a" a secas (2026-09-17).
+        w.innerHTML="✅ Conectado a <b>"+esc(n.ssid||st.ssid||n.cfg||"")+"</b><br>"
+          +"<span style='color:var(--dim)'>"+esc(n.ip||st.wifi||"")+" · "+ico+" "+r+" dBm · "+cal
           +(n.ntp?" · hora por internet":"")+"</span>";
         w.style.borderColor=r>-75?"rgba(63,185,80,.4)":"rgba(232,179,57,.5)";
       }else if(n.st==="Sin red"){
@@ -594,12 +601,26 @@ function applyState(st){
   // Editando una etapa, los sliders son el EDITOR de esa etapa: pisarlos con
   // lo que el equipo está emitiendo borra lo que el usuario acaba de mover, y
   // como el estado llega cada 5 s no llega ni a tocar Guardar. Ver CL-046.
+  const notaCanal=(i,txt)=>{const n=$("nota"+i);if(!n)return;n.textContent=txt||"";n.style.display=txt?"":"none";};
   if(!editandoEtapa()) st.channels.forEach(c=>{
     // En automatico el numero que se muestra es el del momento (specnow), el
     // mismo que dibuja el grafico y que informa el monitor serie.
-    const pct=autoSpec?st.specnow[c.id]:(showRecipe?st.schedule.day[c.id]:c.pct);
-    const on=autoSpec?pct>0.5:(showRecipe?pct>0.5:c.on);
-    paintCh(c.id,pct,on);
+    // Receta = st.schedule.day (la mantiene el equipo tambien sin horario);
+    // salida real = c.pct. En automatico se muestra la mezcla del momento.
+    const day=Array.isArray(st.schedule.day)&&st.schedule.day[c.id]!=null?+st.schedule.day[c.id]:c.pct;
+    const pct=autoSpec?st.specnow[c.id]:day;
+    const on=autoSpec?pct>0.5:(st.schedule.enabled?day>0.5:c.on);
+    paintCh(c.id,pct,on,autoSpec?null:+c.pct);
+    // Un canal con receta pero apagado en plena fase de luz esta bajo el
+    // minimo del 10 % (config.h): decirlo al lado, en vez de un slider que
+    // parece ignorado.
+    let nota="";
+    if(!autoSpec&&day>0.5&&!c.on){
+      const ne=st.schedule.next; const enLuz=!st.schedule.enabled||(ne&&ne.on===false);
+      if(enLuz){ const dim=+st.dim||0; const sale=Math.round(day*dim/100);
+        nota=dim<100?"con brillo "+dim+"% sale "+sale+"%: bajo el mínimo (10%), apagado":"bajo el mínimo (10%): apagado"; }
+    }
+    notaCanal(c.id,nota);
   });
   // Sin el guard de schDirty: tocar el interruptor solo marca el borrador
   // (sch-en.onclick no manda nada, hace falta "Guardar"), pero esta linea
@@ -816,7 +837,9 @@ function applyState(st){
                            : "equipo en su red propia"+(net.ap?" ("+net.ap+")":""));
   }
   pintarNube(st.nube);
-  checkPresetMatch(st.channels.map(c=>+c.pct));
+  // La receta, no la salida: con brillo o de noche la salida nunca coincide
+  // con ningun preset aunque la receta sea exactamente uno.
+  checkPresetMatch(Array.isArray(st.schedule.day)?st.schedule.day.map(v=>+v):st.channels.map(c=>+c.pct));
   // Al final: el resumen lee cosas que este mismo paso acaba de calcular
   // (el proximo evento, entre otras).
   pintarResumen(st);
