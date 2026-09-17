@@ -1512,7 +1512,10 @@ $("pe-del").onclick=()=>{
   send({cmd:"delete_program",id:peId});
   if(!demo)setTimeout(()=>send({cmd:"get_programs"}),250);
   $("prog-editor").style.display="none";
-  toast("Programa borrado");
+  // El acuse lo da el equipo: dice si el programa borrado era el que estaba
+  // rigiendo (sigue hasta que se cambie de modo). Un toast optimista aca lo
+  // pisaba con un "borrado" a secas. En demo no hay equipo: se dice igual.
+  if(demo) toast("Programa borrado");
 };
 // Acepta las dos formas: {"programas":[...]} o un array pelado. Un archivo
 // escrito a mano suele venir como array, y rechazarlo por eso sería quisquilloso
