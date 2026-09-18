@@ -23,6 +23,20 @@
 
 (function () {
   "use strict";
+  // ── Nadie muestra esta app dentro de un marco ──
+  //  GitHub Pages no deja poner `frame-ancestors` (sólo vale como cabecera
+  //  HTTP), así que la protección contra clickjacking va acá: si la página
+  //  está adentro de un <iframe> ajeno, no se dibuja nada operable y se
+  //  intenta salir del marco (Codex CX-2026-09-17, hallazgo 4). Un atacante
+  //  con `sandbox` puede impedir la salida, pero no puede impedir que la app
+  //  se niegue a operar.
+  if (window.top !== window.self) {
+    document.documentElement.innerHTML =
+      "<body style='background:#0d1117;color:#e6edf3;font:16px system-ui,sans-serif;padding:40px;text-align:center'>" +
+      "Esta aplicación no se puede mostrar dentro de otra página.</body>";
+    try { window.top.location = window.location; } catch (_) { /* sandbox: se queda en el aviso */ }
+    return;
+  }
   if (!window.NUBE || !window.NUBE.disponible) return;
 
   const $ = (id) => document.getElementById(id);
