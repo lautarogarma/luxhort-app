@@ -110,7 +110,11 @@ function buildChannels(){
     d.querySelector("input[type=range]").setAttribute("aria-label",CH_NOMBRE[i]);
     host.appendChild(d);
     $("sl"+i).addEventListener("input",()=>{
-      const v=+$("sl"+i).value;
+      // Banda muerta 0..10 %: el slider no puede quedar ahí. Al arrastrar
+      // salta al borde más cercano (0 o 10), y el equipo lo rechazaría igual
+      // (normalizeSchedule lo deja en 0). Ver CH_MIN_ON_PCT en config.h.
+      const v=bandaMuerta(+$("sl"+i).value);
+      $("sl"+i).value=v;
       // Modo Personalizado: el slider edita la ETAPA seleccionada, no la receta
       // fija del equipo. No se manda nada todavía —las cinco etapas viajan
       // juntas al tocar Guardar—, así que se marca el borrador como sucio para
@@ -178,6 +182,10 @@ function pintarSw(el,on){
 // slider mostraba la salida (receta x brillo, o 0 bajo el minimo del 10 %) y
 // "cambiaba solo" apenas llegaba el estado (2026-09-17: 5 % de UVA -> 0;
 // 30 % con brillo 41 % -> 12).
+// El driver no regula entre 0 y 10 %: un valor ahí deja el canal apagado con
+// un número que miente. Ningún control de la app puede producirlo.
+const PCT_MIN_ON=10;
+function bandaMuerta(v){ return (v>0&&v<PCT_MIN_ON)?(v<PCT_MIN_ON/2?0:PCT_MIN_ON):v; }
 function paintCh(i,pct,on,real){
   if(pct!=null){$("sl"+i).value=pct;$("pc"+i).textContent=Math.round(pct)+"%";$("bar"+i).style.setProperty("--p",(real!=null?real:pct)+"%");if(pct>0.5)chLastPct[i]=pct;}
   if(on!=null)pintarSw($("sw"+i),on);
@@ -348,6 +356,37 @@ function pintarNube(n){
         (n.fall?" · "+n.fall+" fallos":""));
 }
 
+// La tarjeta Actualizaciones: pinta lo que el equipo dice de si mismo
+// (instalada, disponible, en que anda) y decide que boton toca.
+function pintarUpd(u){
+  const caja=$("upd-estado"), bb=$("upd-buscar"), bh=$("upd-hacer");
+  if(!caja||!bb||!bh) return;
+  if(!u){ caja.textContent="—"; bb.disabled=true; bh.style.display="none"; return; }
+  const esc=t=>{const d=document.createElement("span");d.textContent=t;return d.innerHTML;};
+  let html="", col="var(--tx)", buscar=true, hacer=false, txtHacer="Actualizar ahora";
+  const inst="Instalada <b>"+esc(u.inst||"?")+"</b>";
+  switch(u.st){
+    case "buscando":    html=inst+"<br>Buscando…"; buscar=false; break;
+    case "al_dia":      html=inst+" · <span style='color:var(--acc)'>es la última versión</span>"; break;
+    case "disponible":  html=inst+" → disponible <b style='color:var(--warn)'>"+esc(u.disp)+"</b>"
+                          +(u.notas?"<br><span style='color:var(--dim)'>"+esc(u.notas)+"</span>":"")
+                          +(u.bytes?"<br><span style='color:var(--dim)'>"+Math.round(u.bytes/1024)+" KB</span>":"");
+                        hacer=true; break;
+    case "descargando": html="Actualizando a <b>"+esc(u.disp)+"</b>: descargando "+(u.prog|0)+" %"
+                          +"<br><span style='color:var(--warn)'>No apagues el equipo.</span>"; buscar=false; break;
+    case "verificando": html="Actualizando a <b>"+esc(u.disp)+"</b>: verificando…"; buscar=false; break;
+    case "listo":       html="<span style='color:var(--acc)'>Actualización instalada.</span> El equipo se está reiniciando; "
+                          +"la app se reconecta sola."; buscar=false; break;
+    case "error":       html=inst+"<br><span style='color:#ff9d95'>No se pudo: "+esc(u.msg||"")+"</span>";
+                        if(u.disp){ hacer=true; txtHacer="Reintentar"; } break;
+    case "sin_red":     html=inst+"<br><span style='color:var(--dim)'>El equipo no tiene internet: no puede buscar.</span>"; break;
+    default:            html=inst; break;
+  }
+  caja.innerHTML=html; caja.style.color=col;
+  bb.disabled=!buscar;
+  bh.style.display=hacer?"":"none"; bh.textContent=txtHacer;
+}
+
 function pintarResumen(st){
   const card=$("resumen"); if(!card||!st)return;
   card.style.display="";
@@ -399,7 +438,7 @@ function pintarResumen(st){
   // vacía. Un renglón en blanco parece un error, así que se dice lo que sí
   // se sabe en vez de no decir nada.
   else prox.textContent=sc.cyclemode===1
-    ? "Ciclo relativo en curso ("+Math.round((+sc.light||0)/60)+" h luz / "
+    ? "Superciclo en curso ("+Math.round((+sc.light||0)/60)+" h luz / "
       +Math.round((+sc.dark||0)/60)+" h oscuridad)."
     : "Fotoperíodo activo.";
 
@@ -473,7 +512,7 @@ function applyState(st){
            "<button class='btn acc' id='btn-synctime'>Poner la hora ahora</button>";
     }else if(st.schedule&&st.schedule.cyclemode===1&&!st.cal){
       cls="bad";
-      html="⛔ <b>Ciclo relativo detenido: falta la fecha</b><br>HH:MM alcanza para <b>Cada día</b>, pero este modo necesita día, mes y año."+
+      html="⛔ <b>Superciclo detenido: falta la fecha</b><br>HH:MM alcanza para <b>Día 24hs</b>, pero este modo necesita día, mes y año."+
            "<button class='btn acc' id='btn-synctime'>Sincronizar fecha y hora</button>";
     }else if(!st.cal){
       // Falta la FECHA aunque haya HH:MM (típico: hora puesta a mano desde la
@@ -483,8 +522,8 @@ function applyState(st){
       // pidiendo sincronizar SIN darle ningún botón para hacerlo. Callejón
       // sin salida, reportado desde la placa (2026-08-16).
       cls="warn";
-      html="⚠ <b>El equipo no sabe la fecha</b><br>Con HH:MM alcanza para <b>Cada día</b>, pero "+
-           "<b>Ciclo relativo</b> necesita día, mes y año."+
+      html="⚠ <b>El equipo no sabe la fecha</b><br>Con HH:MM alcanza para <b>Día 24hs</b>, pero "+
+           "<b>Superciclo</b> necesita día, mes y año."+
            "<button class='btn acc' id='btn-synctime'>Sincronizar fecha y hora</button>";
     }else if(tqi===1){
       cls="warn";
@@ -837,6 +876,7 @@ function applyState(st){
                            : "equipo en su red propia"+(net.ap?" ("+net.ap+")":""));
   }
   pintarNube(st.nube);
+  pintarUpd(st.upd);
   // La receta, no la salida: con brillo o de noche la salida nunca coincide
   // con ningun preset aunque la receta sea exactamente uno.
   checkPresetMatch(Array.isArray(st.schedule.day)?st.schedule.day.map(v=>+v):st.channels.map(c=>+c.pct));
@@ -961,7 +1001,8 @@ function opCerrar(id,estado,msg){
 }
 const CMD_ESCRIBE=new Set(["set_channel","set_all","set_dim","set_schedule",
                            "apply_program","save_program","delete_program",
-                           "set_time","set_role","update_factory"]);
+                           "set_time","set_role","update_factory",
+                           "check_update","do_update"]);
 
 function send(o){
   // Las escrituras llevan numero; las lecturas no lo necesitan.
@@ -1013,14 +1054,17 @@ function sendChannel(i,fields){ // debounce por canal para no inundar el WS
 // pantalla (src/DisplayUi.cpp) — están duplicados, ver MEJ-018.
 const FACTORY_PRESETS=[
   {n:"Germinación",  p:[20, 60, 40,  0,  0]},
-  {n:"Clonación",    p:[30, 70, 30,  5,  5]},
-  {n:"Vegetativo",   p:[60,100, 60,  5,  5]},
+  // Ningún canal entre 1 y 9 %: es la banda muerta del driver (10 % mínimo,
+  // ver CH_MIN_ON_PCT en config.h). Los 5 % de far red / UVA pasaron a 0 el
+  // 2026-09-20. Misma tabla que FACTORY_PRESETS en src/DisplayUi.cpp.
+  {n:"Clonación",    p:[30, 70, 30,  0,  0]},
+  {n:"Vegetativo",   p:[60,100, 60,  0,  0]},
   {n:"Pre-Flora",    p:[70, 70, 80, 15, 10]},
   {n:"Floración",    p:[90, 40,100, 30, 15]},
-  {n:"Maduración",   p:[100,20,100, 50,  5]},
+  {n:"Maduración",   p:[100,20,100, 50,  0]},
   {n:"Día Solar",    p:[70, 80, 70, 10, 10]},
-  {n:"Nublado",      p:[40, 90, 30,  5, 20]},
-  {n:"Luz Suave",    p:[30, 30, 20,  5,  0]},
+  {n:"Nublado",      p:[40, 90, 30,  0, 20]},
+  {n:"Luz Suave",    p:[30, 30, 20,  0,  0]},
   // "UV Activo" retirado del catálogo (MEJ-013): no es una receta de cultivo
   // sino una prueba técnica, y estaba a un toque de los presets diarios.
   // "Full" se mantiene y sigue pidiendo confirmación por su UVA al 100 %.
@@ -1118,7 +1162,7 @@ $("restaurar-receta").onclick=()=>{
   pintarRestaurar();
 };
 pintarRestaurar();
-$("sch-en").onclick=()=>{const en=!$("sch-en").classList.contains("on");pintarSw($("sch-en"),en);toggleSchCfg(en);markSchDirty();};
+$("sch-en").onclick=()=>{const en=!$("sch-en").classList.contains("on");pintarSw($("sch-en"),en);toggleSchCfg(en);paintCycMode();markSchDirty();};
 // Los interruptores marcan BORRADOR. Antes llamaban a saveSchedule(), que lee
 // el formulario COMPLETO: tocar "amanecer/atardecer" podia guardar de paso una
 // hora, una duracion o un ancla que el usuario habia tipeado y todavia no
@@ -1165,8 +1209,12 @@ function clearSchDirty(){
 // 0 = Horario 24 h (clásico, anclado al reloj) · 1 = Superciclo (día ≠ 24 h)
 let cycMode=0,cycDraftDirty=false;
 function paintCycMode(){
-  $("cyc-daily").classList.toggle("sel",cycMode===0);
-  $("cyc-free").classList.toggle("sel",cycMode===1);
+  // Con el fotoperíodo apagado ningún modo se pinta como elegido: a simple
+  // vista se ve que no rige nada. Al encenderlo se marca el que quedó
+  // guardado (2026-09-20, mismo criterio que la pantalla).
+  const schOn=$("sch-en").classList.contains("on");
+  $("cyc-daily").classList.toggle("sel",schOn&&cycMode===0);
+  $("cyc-free").classList.toggle("sel",schOn&&cycMode===1);
   $("cfg-daily").style.display=cycMode===0?"":"none";
   $("cfg-free").style.display=cycMode===1?"":"none";
   // La línea de tiempo de 24 h no tiene sentido en superciclo: el ciclo no
@@ -1176,8 +1224,8 @@ function paintCycMode(){
   // del modo elegido obliga a tocar el otro botón —o sea, a cambiar el modo—
   // para enterarse de qué hace (UX-260908-02).
   const info=$("cyc-info"); info.textContent="";
-  [["Cada día","enciende y apaga a las mismas horas todos los días.",0],
-   ["Ciclo relativo","las horas de luz y de oscuridad no se atan al reloj; cada ciclo arranca cuando termina el anterior.",1]]
+  [["Día 24hs","enciende y apaga a las mismas horas todos los días.",0],
+   ["Superciclo","las horas de luz y de oscuridad no se atan al reloj; cada ciclo arranca cuando termina el anterior.",1]]
   .forEach(([nombre,txt,modo])=>{
     const d=document.createElement("div");
     d.style.color=modo===cycMode?"var(--tx)":"var(--dim)";
@@ -1229,7 +1277,10 @@ function saveSchedule(en){
   // pero eso es solo una sugerencia de UI — se puede tipear/pegar cualquier
   // valor (incluso vacio -> NaN) y el navegador lo deja salir igual.
   const clamp=(v,lo,hi,def)=>{v=+v;return Number.isFinite(v)?Math.min(hi,Math.max(lo,v)):def;};
-  const ramp=clamp($("sch-ramp").value,0,240,30);
+  // Far red del amanecer/atardecer: 5..15 min en pasos de 5 (config.h,
+  // SUNSIM_*). El equipo recorta igual; acá se recorta antes para que el
+  // formulario no prometa un 30 que va a volver como 15.
+  const ramp=Math.round(clamp($("sch-ramp").value,5,15,10)/5)*5;
   // La rampa de encendido viaja en el mismo formulario aunque del lado del
   // equipo no viva dentro del horario (se guarda junto al brillo global).
   const onramp=$("onramp-en").classList.contains("on");
@@ -1451,7 +1502,7 @@ function renderPeMix(){
     sl.setAttribute("aria-label","Mezcla de "+c.name+" para este paso");
     const pc=document.createElement("div");
     pc.className="pct"; pc.textContent=peMix[i]+"%";
-    sl.oninput=()=>{peMix[i]=+sl.value;pc.textContent=peMix[i]+"%";};
+    sl.oninput=()=>{const v=bandaMuerta(+sl.value);sl.value=v;peMix[i]=v;pc.textContent=v+"%";};
     d.appendChild(nm);d.appendChild(sl);d.appendChild(pc);
     host.appendChild(d);
   });
@@ -1518,7 +1569,7 @@ $("pe-save").onclick=()=>{
   if(peSteps.length>10){toast("Máximo 10 pasos por programa");return;}
   if(cycMode===1){
     const limit=Math.round((+$("cyc-light").value||13)*60);
-    if(!peSteps.some(s=>s.h===0)){toast("El ciclo relativo necesita un paso en +0 h");return;}
+    if(!peSteps.some(s=>s.h===0)){toast("El Superciclo necesita un paso en +0 h");return;}
     if(peSteps.some(s=>s.h<0||s.h>=limit)){
       toast("Hay pasos fuera de la fase de luz");return;
     }
@@ -1607,6 +1658,17 @@ $("wf-save").onclick=()=>{
 // tercera). Pedirlas acá era una forma de equivocarse.
 $("nu-activar").onclick=()=>send({cmd:"set_nube",on:true});
 $("nu-apagar").onclick=()=>send({cmd:"set_nube",on:false});
+$("upd-buscar").onclick=()=>{
+  if(demo){toast("Primero conectate al equipo");return;}
+  if(send({cmd:"check_update"})){ $("upd-buscar").disabled=true; $("upd-estado").textContent="Buscando…"; }
+};
+$("upd-hacer").onclick=()=>{
+  if(demo){toast("Primero conectate al equipo");return;}
+  const v=(state&&state.upd&&state.upd.disp)||"la versión nueva";
+  if(!confirm("Actualizar el equipo a "+v+".\n\nSe descarga, se verifica y el equipo se reinicia solo al terminar: "
+      +"la luz se corta unos 10 segundos durante el reinicio. La configuración se conserva.\n\n¿Actualizar ahora?")) return;
+  send({cmd:"do_update"});
+};
 $("wf-forget").onclick=()=>{
   if(demo){toast("Primero conectate al equipo");return;}
   const red=$("wf-forget").dataset.ssid||"la red guardada";

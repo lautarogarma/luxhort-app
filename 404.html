@@ -238,8 +238,8 @@ button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-
        encendida 24 horas», que es justo lo contrario de lo que hace, y
        «Superciclo» no dice nada si no se sabe de antemano (UX-260908-02). -->
   <div class="row" style="margin-bottom:8px">
-    <button class="btn" id="cyc-daily">Cada día</button>
-    <button class="btn" id="cyc-free">Ciclo relativo</button>
+    <button class="btn" id="cyc-daily">Día 24hs</button>
+    <button class="btn" id="cyc-free">Superciclo</button>
   </div>
   <!-- Las dos explicaciones SIEMPRE visibles, no sólo la del modo elegido:
        para decidir entre dos cosas hay que poder leer las dos. -->
@@ -264,7 +264,7 @@ button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-
          far-red de alba/ocaso ya viene en la curva y este campo no hace nada.
          El botón Guardar, en cambio, NO se puede ocultar: sigue guardando los
          horarios del fotoperíodo. -->
-    <div id="ss-min-block"><label class="fl" for="sch-ramp">Amanecer/atardecer (min)</label><input type="number" id="sch-ramp" min="0" max="240" value="30"></div>
+    <div id="ss-min-block"><label class="fl" for="sch-ramp">Amanecer/atardecer (min, 5 a 15)</label><input type="number" id="sch-ramp" min="5" max="15" step="5" value="10"></div>
     <div id="sch-save-cell" style="display:flex;align-items:flex-end;gap:8px"><button class="btn" id="sch-cancel" style="flex:0 0 auto;min-width:0;padding:12px 14px">Cancelar</button><button class="btn acc" id="sch-save" style="flex:1">Guardar</button></div>
   </div>
   <!-- Reemplaza a los dos bloques de abajo en modo "Día natural": esa curva ya
@@ -399,6 +399,21 @@ button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-
     <button class="btn acc" id="nu-activar">Activar</button>
     <button class="btn off" id="nu-apagar">Desactivar</button>
   </div>
+</div>
+
+<!-- Actualizaciones de firmware (2026-09-20). Dos pasos que siempre son dos:
+     buscar, y despues actualizar con confirmacion. El estado lo publica el
+     equipo (st.upd); esta tarjeta solo lo pinta y manda los dos comandos. -->
+<div class="card" id="upd-card">
+  <h2>Actualizaciones</h2>
+  <div id="upd-estado" style="margin-bottom:10px;padding:10px 12px;border-radius:8px;
+    background:#161b22;border:1px solid var(--line);font-size:13px;line-height:1.5">esperando al equipo…</div>
+  <div class="row">
+    <button class="btn" id="upd-buscar">Buscar actualizaciones</button>
+    <button class="btn acc" id="upd-hacer" style="display:none">Actualizar ahora</button>
+  </div>
+  <div class="foot" style="text-align:left">Se descarga, se verifica y el equipo se reinicia solo al
+    terminar (unos 10 segundos sin luz). La configuración se conserva.</div>
 </div>
 
 <div class="foot">fw <span id="fw">—</span> · hora equipo <span id="time">—</span> · <span id="ip">—</span></div>
