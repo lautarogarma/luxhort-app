@@ -267,13 +267,13 @@ button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-
     <div id="ss-min-block"><label class="fl" for="sch-ramp">Amanecer/atardecer (min, 5 a 15)</label><input type="number" id="sch-ramp" min="5" max="15" step="5" value="10"></div>
     <div id="sch-save-cell" style="display:flex;align-items:flex-end;gap:8px"><button class="btn" id="sch-cancel" style="flex:0 0 auto;min-width:0;padding:12px 14px">Cancelar</button><button class="btn acc" id="sch-save" style="flex:1">Guardar</button></div>
   </div>
-  <!-- Reemplaza a los dos bloques de abajo en modo "Día natural": esa curva ya
-       trae su propio far-red de alba/ocaso y ya arranca casi en cero. -->
+  <!-- Reemplaza al bloque de amanecer/atardecer en modo "Día natural": esa
+       curva ya trae su propio far-red de alba/ocaso. -->
   <div id="natural-note" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;
        background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.3);font-size:13px;line-height:1.5">
-    <b>Modo Día natural.</b> El amanecer/atardecer y la rampa de encendido ya vienen incluidos en la
-    curva del día, así que no se configuran aparte. El <b>brillo global</b> sigue regulando la
-    potencia final del equipo.
+    <b>Modo Día natural.</b> El amanecer/atardecer ya viene incluido en la curva del día
+    (far red al 100 % al alba y al ocaso), así que no se configura aparte. La <b>rampa de
+    encendido</b> y el <b>brillo global</b> siguen disponibles.
   </div>
 
   <div class="schon" id="fr-block" style="margin-top:12px;margin-bottom:0">

@@ -54,7 +54,17 @@
   // A dónde vuelve Auth0 después de entrar o salir: esta misma página, sin
   // query ni hash. Tiene que estar en «Allowed Callback URLs» y «Allowed
   // Logout URLs» de la aplicación en Auth0, exacta.
-  const RETORNO = location.origin + location.pathname;
+  //
+  // Se le SACA el "index.html" final a propósito. Auth0 compara el
+  // redirect_uri letra por letra contra su lista blanca, donde está anotada
+  // la forma con barra (`https://…/luxhort-app/`). Entrar por un favorito, un
+  // enlace compartido o la app instalada en el teléfono puede dar la URL con
+  // `index.html` al final, y entonces el ingreso muere con «Callback URL
+  // mismatch» — le pasó al propietario el 2026-09-21, con la sesión ya
+  // funcionando desde hacía días. Normalizando acá, da igual por dónde entre:
+  // el retorno es siempre el mismo y hay UNA sola dirección que mantener en
+  // Auth0. Ver web/supabase/AUTH0.md, punto 2.
+  const RETORNO = location.origin + location.pathname.replace(/index\.html?$/i, "");
 
   // El cliente se crea una vez y es asíncrono: todo lo que lo usa espera
   // esta promesa. `localstorage` para que la sesión sobreviva a cerrar la

@@ -398,9 +398,16 @@ function pintarResumen(st){
   // canales todavía estén por debajo del piso (rampa de encendido). Antes
   // sólo miraba los canales y los dos indicadores se contradecían un rato.
   const esDia=ne?!ne.on:null;
-  const enc=(st.channels||[]).some(c=>c&&c.on&&c.pct>0)||esDia===true;
+  // Rampa de arranque sin fotoperíodo (2026-09-20): al energizar el equipo la
+  // receta sube desde cero. Los canales muestran escalones intermedios y los
+  // primeros minutos están todos bajo el piso: cuenta como encendida y se dice
+  // cuánto falta, para que nadie "corrija" un valor que sube solo.
+  const ra=st.rampa_arranque||{};
+  const enc=(st.channels||[]).some(c=>c&&c.on&&c.pct>0)||esDia===true||ra.activa===true;
   const dim=+st.dim||0;
-  $("rs-luz").innerHTML=enc
+  $("rs-luz").innerHTML=ra.activa===true
+    ? "<span style='color:var(--acc)'>● Encendiendo en rampa</span> <span style='color:var(--dim);font-weight:400;font-size:14px'>— faltan "+(+ra.restan||0)+" min · brillo "+dim+"%</span>"
+    : enc
     ? "<span style='color:var(--acc)'>● Encendida</span> <span style='color:var(--dim);font-weight:400;font-size:14px'>— brillo "+dim+"%</span>"
     : "<span style='color:var(--dim)'>○ Apagada</span>";
 
@@ -826,20 +833,18 @@ function applyState(st){
   // el botón que uno acababa de tocar no se encendía nunca.
   paintDynTab();
   paintChips();renderProgChips();
-  // "Día natural" ya incluye el far-red de alba/ocaso en su propia curva y ya
-  // arranca la fase de luz casi en cero, así que ofrecer aparte el
-  // amanecer/atardecer y la rampa de encendido sería el mismo efecto dos veces
-  // (decisión del usuario, 2026-08-17). Se ocultan y se explica por qué: un
-  // hueco sin explicación se lee como una falla.
-  // El brillo global NO se toca — en cualquier modo el usuario tiene que poder
-  // regular la potencia final del equipo.
+  // "Día natural" ya incluye el far-red de alba/ocaso en su propia curva, así
+  // que ofrecer aparte el amanecer/atardecer sería el mismo efecto dos veces
+  // (decisión del usuario, 2026-08-17, confirmada el 2026-09-20). Se oculta y
+  // se explica por qué: un hueco sin explicación se lee como una falla.
+  // La rampa de encendido se ve en TODOS los modos (hasta el 2026-09-20 también
+  // se ocultaba acá): si está configurada, la luz arranca con ella. El brillo
+  // global tampoco se toca.
   {
     const esNatural=dynMode===1;
     $("natural-note").style.display=esNatural?"":"none";
     $("fr-block").style.display=esNatural?"none":"";
-    $("onramp-block").style.display=esNatural?"none":"";
-    $("onramp-body").style.display=
-      (!esNatural&&$("onramp-en").classList.contains("on"))?"":"none";
+    $("onramp-body").style.display=$("onramp-en").classList.contains("on")?"":"none";
     // El campo de minutos de amanecer/atardecer vive en la MISMA grilla que el
     // botón Guardar, así que no alcanzaba con ocultar el bloque del switch:
     // quedaba a la vista un ajuste que en día natural no hace absolutamente
@@ -1053,7 +1058,10 @@ function sendChannel(i,fields){ // debounce por canal para no inundar el WS
 // abajo, no apagando el canal. Este catálogo debe quedar igual al de la
 // pantalla (src/DisplayUi.cpp) — están duplicados, ver MEJ-018.
 const FACTORY_PRESETS=[
-  {n:"Germinación",  p:[20, 60, 40,  0,  0]},
+  // "Germinación" hasta el 2026-09-20: el nombre no entraba en el botón de la
+  // pantalla y el propietario lo renombró. Los valores no cambiaron todavía.
+  // Mismo catálogo en src/DisplayUi.cpp: FACTORY_PRESETS.
+  {n:"Flora 1",      p:[20, 60, 40,  0,  0]},
   // Ningún canal entre 1 y 9 %: es la banda muerta del driver (10 % mínimo,
   // ver CH_MIN_ON_PCT en config.h). Los 5 % de far red / UVA pasaron a 0 el
   // 2026-09-20. Misma tabla que FACTORY_PRESETS en src/DisplayUi.cpp.
@@ -1743,6 +1751,10 @@ function showNetworks(nets,ok){
   });
 }
 $("dim-sl").addEventListener("input",()=>{
+  // Banda muerta del brillo, igual que la de los canales: del 0 se salta al
+  // 10 % (propietario, 2026-09-20). Por debajo del 10 % la fuente no atenua,
+  // asi que un 4 % no es "poca luz", es apagado con un numero que miente.
+  if(+$("dim-sl").value>0 && +$("dim-sl").value<PCT_MIN_ON) $("dim-sl").value=PCT_MIN_ON;
   const v=+$("dim-sl").value;
   $("dim-pc").textContent=v+"%";
   clearTimeout(sendTimer.dim);
