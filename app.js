@@ -405,11 +405,40 @@ function pintarResumen(st){
   const ra=st.rampa_arranque||{};
   const enc=(st.channels||[]).some(c=>c&&c.on&&c.pct>0)||esDia===true||ra.activa===true;
   const dim=+st.dim||0;
-  $("rs-luz").innerHTML=ra.activa===true
-    ? "<span style='color:var(--acc)'>● Encendiendo en rampa</span> <span style='color:var(--dim);font-weight:400;font-size:14px'>— faltan "+(+ra.restan||0)+" min · brillo "+dim+"%</span>"
+  // Quién tiene la autoridad, y en qué momento del ciclo está la luz. Los dos
+  // salen del equipo (`role`/`waitapp`/`rs485` y `luz`), no se deducen acá.
+  // Se declaran ANTES del primer uso: los usan este indicador, el renglón del
+  // horario y el texto "Rige:", en ese orden.
+  const rs485_=st.rs485||{}, esEsclavo=st.role===1, esperaApp=!!st.waitapp;
+  const gris="<span style='color:var(--dim)'>";
+  const chico="<span style='color:var(--dim);font-weight:400;font-size:14px'>";
+  // ── "Encendida" mentía en tres situaciones ──
+  //  1. En esclavo sin señal y esperando la app, la luminaria está APAGADA a
+  //     propósito, y este cartel anunciaba el estado del fotoperíodo local,
+  //     que en esos modos no rige.
+  //  2. Durante el amanecer y el atardecer el far-red está al 100 %:
+  //     "encendida" es cierto, pero el 730 nm es casi invisible. Se veía una
+  //     luminaria apagada y un cartel que decía lo contrario.
+  //  Es el mismo defecto que el propietario reportó en la pantalla el
+  //  2026-09-22 ("me sale encendida - enciende 20:55"), y la app lo tenía
+  //  igual. El estado lo decide el firmware: ver EstadoLuz en Scheduler.h.
+  if(esEsclavo)
+    $("rs-luz").innerHTML=(rs485_.rx&&rs485_.link)
+      ? "<span style='color:var(--acc)'>● Comandada por RS485</span> "+chico+"— la maneja la luminaria maestra</span>"
+      : gris+"○ Apagada</span> "+chico+"— esperando señal del maestro (RS485)</span>";
+  else if(esperaApp)
+    $("rs-luz").innerHTML=gris+"○ Apagada</span> "+chico+"— esperando tu primera orden</span>";
+  else if(st.luz===2||st.luz===3)
+    $("rs-luz").innerHTML="<span style='color:#c2703a'>● "+(st.luz===2?"Amanecer":"Atardecer")+"</span> "
+      +chico+"— sólo far red 730 nm, casi invisible a simple vista</span>";
+  else if(st.luz===4)
+    $("rs-luz").innerHTML="<span style='color:var(--acc)'>● Encendiendo en rampa</span> "
+      +chico+"— faltan "+(+st.luzmin||0)+" min · brillo "+dim+"%</span>";
+  else $("rs-luz").innerHTML=ra.activa===true
+    ? "<span style='color:var(--acc)'>● Encendiendo en rampa</span> "+chico+"— faltan "+(+ra.restan||0)+" min · brillo "+dim+"%</span>"
     : enc
-    ? "<span style='color:var(--acc)'>● Encendida</span> <span style='color:var(--dim);font-weight:400;font-size:14px'>— brillo "+dim+"%</span>"
-    : "<span style='color:var(--dim)'>○ Apagada</span>";
+    ? "<span style='color:var(--acc)'>● Encendida</span> "+chico+"— brillo "+dim+"%</span>"
+    : gris+"○ Apagada</span>";
 
   // Las horas, dichas: "Enciende a las 06:00 · Apaga a las 20:00". En
   // Superciclo (ciclo relativo) no hay horas fijas del día: se dice el
@@ -423,23 +452,55 @@ function pintarResumen(st){
       const tp=st.time.split(":"),tgt=((+tp[0])*60+(+tp[1])+(+ne.in||0))%1440;
       h=(ne.on?"Enciende":"Apaga")+" a las <b>"+m2t(tgt)+"</b>";
     }
+    // En esclavo y esperando la app, este renglón anunciaba las horas del
+    // fotoperíodo LOCAL, que en esos modos no gobierna nada: la misma
+    // configuración vieja contada como si rigiera.
+    if(esEsclavo||esperaApp) h="";
     hor.innerHTML=h; hor.style.display=h?"":"none";
   }
+  // ── Qué está haciendo la luz AHORA ──
+  //  `st.luz` es el EstadoLuz del firmware (Scheduler.h). Se publica el ESTADO
+  //  y no el texto para que la regla del far-red de los bordes y de la rampa
+  //  viva en un solo lugar: el Scheduler, que es quien la decide.
+  //  Sin esto la app tenía el mismo defecto que tuvo la pantalla hasta el
+  //  2026-09-22: durante el amanecer decía "encendida" —cierto, el far-red
+  //  está al 100 %— al lado de un cartel que anunciaba que encendía más tarde.
+  //  El 730 nm no se ve, así que quien mira la luminaria no puede reconciliar
+  //  las dos cosas.
+  const LUZ_TXT={2:"Amanecer: sólo far red",
+                 3:"Atardecer: sólo far red",
+                 4:"En rampa de encendido"};
+  // Quién tiene la autoridad. En esclavo manda el bus y en WiFi Maestro recién
+  // elegido manda la app: en los dos casos la configuración local NO rige, y
+  // contarla sería exactamente lo que este bloque evita.
   let rige;
-  if(!sc.enabled) rige="Receta fija, sin fotoperíodo: luz continua.";
+  if(esEsclavo)
+    rige=(rs485_.rx&&rs485_.link)
+      ? "Lo que manda la luminaria maestra por RS485."
+      : "Esperando señal del maestro por RS485: las salidas están apagadas.";
+  else if(esperaApp)
+    rige="Esperando la primera orden desde la app: las salidas están apagadas.";
+  else if(!sc.enabled) rige="Receta fija, sin fotoperíodo: luz continua.";
   else if(sc.specmode===1) rige="Espectro Día natural, dentro del fotoperíodo.";
   else if(sc.specmode===2) rige="Espectro por etapas, dentro del fotoperíodo.";
   else if(sc.specmode===3){
     const pr=(progsLib.custom||[]).concat(progsLib.factory||[]).find(x=>x&&x.id===sc.progid);
     rige="Programa "+((pr&&(pr.n||pr.name))||sc.progid||"—")+", dentro del fotoperíodo.";
   } else rige="Receta fija, dentro del fotoperíodo.";
+  // El momento del ciclo va ADELANTE de todo: es lo que contesta "¿por qué la
+  // veo apagada si dice que está encendida?". Sólo en los tres estados que
+  // confunden; en luz plena o de noche, el texto de siempre alcanza.
+  if(!esEsclavo&&!esperaApp&&LUZ_TXT[st.luz])
+    rige=LUZ_TXT[st.luz]+(st.luz===4&&st.luzmin?" ("+st.luzmin+" min)":"")+" · "+rige;
   $("rs-rige").textContent="Rige: "+rige;
 
   // "Que pasa despues" sale del mismo calculo que ya alimenta la linea de
   // tiempo; si no hay horario, no hay proximo evento y se dice.
   const prox=$("rs-prox");
   const rem=$("sch-remain");
-  if(!sc.enabled) prox.textContent="Sin cambios previstos: el fotoperíodo está apagado.";
+  if(esEsclavo) prox.textContent="El horario lo decide la luminaria maestra.";
+  else if(esperaApp) prox.textContent="El horario de este equipo se reanuda con la primera orden.";
+  else if(!sc.enabled) prox.textContent="Sin cambios previstos: el fotoperíodo está apagado.";
   else if(rem&&rem.textContent.trim()) prox.textContent=rem.textContent.trim();
   // La cuenta regresiva sólo se calcula en modo 24 h; en Superciclo queda
   // vacía. Un renglón en blanco parece un error, así que se dice lo que sí
@@ -481,7 +542,19 @@ function applyState(st){
       banner.textContent="🔒 Modo Local — los controles de abajo están deshabilitados, este equipo se controla solo desde su pantalla";
       banner.style.display="block";
     } else if(st.role===1){
-      banner.textContent="🔒 Modo Esclavo — los controles de abajo están deshabilitados, recibe la configuración de otra luminaria por RS485";
+      // Decir además SI está llegando algo. "Recibe de otra luminaria" a secas
+      // es falso mientras no llegue una trama: ahí la luminaria está apagada
+      // esperando, y eso es lo que hay que ver de un vistazo.
+      const rs=st.rs485||{};
+      banner.textContent=(rs.rx&&rs.link)
+        ? "🔒 Modo Esclavo — los controles están deshabilitados: recibe la configuración de otra luminaria por RS485"
+        : "⚠ Modo Esclavo sin señal — las salidas están apagadas esperando a la luminaria maestra (RS485)";
+      banner.style.display="block";
+    } else if(st.waitapp){
+      // WiFi Maestro recién elegido: el equipo cortó lo que venía haciendo y
+      // espera. Si la app no lo dijera, se vería una luminaria apagada sin
+      // ninguna explicación. Ver Rs485Link::esperandoApp() en el firmware.
+      banner.textContent="⚠ Esperando tu primera orden — al pasar a WiFi el equipo apagó las salidas; tocá cualquier control para tomar el mando";
       banner.style.display="block";
     } else {
       banner.style.display="none";
@@ -1170,7 +1243,7 @@ $("restaurar-receta").onclick=()=>{
   pintarRestaurar();
 };
 pintarRestaurar();
-$("sch-en").onclick=()=>{const en=!$("sch-en").classList.contains("on");pintarSw($("sch-en"),en);toggleSchCfg(en);paintCycMode();markSchDirty();};
+$("sch-en").onclick=()=>{const en=!$("sch-en").classList.contains("on");pintarSw($("sch-en"),en);toggleSchCfg(en);paintCycMode();paintDynTab();markSchDirty();};
 // Los interruptores marcan BORRADOR. Antes llamaban a saveSchedule(), que lee
 // el formulario COMPLETO: tocar "amanecer/atardecer" podia guardar de paso una
 // hora, una duracion o un ancla que el usuario habia tipeado y todavia no
@@ -1383,6 +1456,14 @@ $("dyn-en").onclick=()=>{
 // que el botón recién tocado tardara segundos en encenderse.
 function paintDynTab(){
   $("dyn-natural").classList.toggle("sel",uiTab===1);
+  // Se VE deshabilitado, no sólo se comporta como tal: un botón que ignora el
+  // toque sin ninguna señal visual se lee como que la app está colgada. Ver
+  // el onclick de dyn-natural para el porqué de la regla.
+  {
+    const hayFoto=$("sch-en").classList.contains("on");
+    $("dyn-natural").style.opacity=hayFoto?"":"0.45";
+    $("dyn-natural").title=hayFoto?"":"Necesita el fotoperíodo activo";
+  }
   $("dyn-custom").classList.toggle("sel",uiTab===2);
   $("dyn-progs").classList.toggle("sel",uiTab===3);
   // Las etapas se muestran en las dos primeras pestañas: en día natural para
@@ -1391,6 +1472,18 @@ function paintDynTab(){
   $("prog-panel").style.display=uiTab===3?"block":"none";
 }
 $("dyn-natural").onclick=()=>{
+  // ── Día natural NO existe sin fotoperíodo ──
+  //  La curva del día se calcula ENTRE el encendido y el apagado (t=0 alba,
+  //  t=0,5 mediodía, t=1 ocaso). Sin fotoperíodo no hay fase de luz: el
+  //  firmware ni siquiera corre el Scheduler (`if(!_sch.enabled) return` en
+  //  tick()). Elegirlo acá no cambiaba la luz, pero quedaba GUARDADO y volvía
+  //  a regir solo al reactivar el fotoperíodo, sin que nadie lo hubiera
+  //  elegido en ese momento. Mismo arreglo que se hizo en la pantalla el
+  //  2026-09-22.
+  if(!$("sch-en").classList.contains("on")){
+    toast("Día natural necesita el fotoperíodo activo");
+    return;
+  }
   uiTab=1;dynMode=1;lastDynModeSeen=1;
   dynStages=NATURAL.map(e=>e.slice());
   paintDynTab();
