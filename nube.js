@@ -127,6 +127,20 @@
     await c.loginWithRedirect();
   }
 
+  // ── Volver a ingresar para una orden sensible (2026-09-24) ──
+  //  Cambiar el WiFi, el modo de control, la nube o el firmware, y dar
+  //  permisos, piden un ingreso de los últimos 10 minutos (ver
+  //  supabase/miembros.sql, sesion_reciente). `max_age: 0` obliga a Auth0 a
+  //  pedir la clave aunque la sesión siga viva, y hace que el ID token traiga
+  //  `auth_time` (OIDC lo exige cuando se pide max_age), que es lo que mira
+  //  la base. `prompt: "login"` por si el tenant ignorara el max_age. No
+  //  devuelve: la página cambia, y a la vuelta hay que repetir la orden.
+  async function reingresar() {
+    if (!configurado) throw new Error("Falta configurar el ingreso (Auth0) en config.js — ver supabase/AUTH0.md");
+    const c = await cliente;
+    await c.loginWithRedirect({ authorizationParams: { max_age: 0, prompt: "login" } });
+  }
+
   // Cierra la sesión acá Y en Auth0, y vuelve a esta página.
   async function salir() {
     const c = await cliente;
@@ -207,26 +221,50 @@
   // es mejor que un "error desconocido" que no deja buscar nada.
   function traducir(m) {
     const t = String(m || "");
+    // Las reglas de miembros.sql rechazan con una palabra clave adelante
+    // (SOLO_LECTURA, SOLO_DUENO, REAUTENTICAR) para que la app sepa qué
+    // salida ofrecer. Se saca: el resto ya está escrito para la persona.
+    const clave = /^(SOLO_LECTURA|SOLO_DUENO|REAUTENTICAR):\s*/.exec(t);
+    if (clave) return t.slice(clave[0].length).replace(/^./, (x) => x.toUpperCase());
+    // La política de `comandos` rechaza a quien ya no es miembro. Pasa, sobre
+    // todo, cuando el dueño le quitó el acceso con la app abierta.
+    if (/row-level security/i.test(t))
+      return "No tenés permiso para operar este equipo: puede que el dueño te haya quitado el acceso.";
     if (/JWT|JWS|token|expired|Unauthorized/i.test(t)) return "Sesión vencida: volvé a entrar";
     if (/rate limit|too many/i.test(t)) return "Demasiados intentos: esperá un rato";
     if (/Failed to fetch|NetworkError/i.test(t)) return "Sin internet";
     return t;
   }
 
+  // El error, traducido, y marcado si la salida es volver a ingresar: la
+  // interfaz ofrece el botón en vez de dejar a la persona adivinando.
+  function errorDe(m) {
+    const e = new Error(traducir(m));
+    e.reingresar = /^REAUTENTICAR:/.test(String(m || ""));
+    return e;
+  }
+
   // ------------------------------------------------------------
   //  Equipos
   // ------------------------------------------------------------
+  //  Con el rol de quien entra: `miembros` sólo le deja ver SU fila (política
+  //  "ver mis membresias"), así que el anidado trae exactamente su rol.
   async function listarEquipos() {
     const { data, error } = await sb
       .from("equipos")
-      .select("id, nombre, serie, estado(datos, actualizado)")
+      .select("id, nombre, serie, estado(datos, actualizado), miembros(rol)")
       .order("nombre");
     if (error) throw new Error(traducir(error.message));
-    return data || [];
+    return (data || []).map((eq) => {
+      eq.rol = (eq.miembros && eq.miembros[0] && eq.miembros[0].rol) || null;
+      return eq;
+    });
   }
 
   // Vincular con el código de 8 caracteres que muestra la pantalla, en la
-  // pestaña Conexión. Es lo que convierte a quien lo escribe en dueño.
+  // pestaña Conexión. El primero que lo escribe queda como dueño; con
+  // miembros.sql, los que vienen después entran como operador (decisión del
+  // propietario, 2026-09-25) y el dueño los puede bajar o sacar.
   async function vincular(codigo) {
     const { data, error } = await sb.rpc("vincular_equipo", {
       p_codigo: String(codigo || "").trim().toUpperCase(),
@@ -262,7 +300,7 @@
     const { data, error } = await sb.from("comandos")
       .insert({ equipo_id: id, payload })
       .select("id").single();
-    if (error) throw new Error(traducir(error.message));
+    if (error) throw errorDe(error.message);
 
     // Esperar a que el equipo lo resuelva. No se da por aplicado al
     // insertarlo: eso sería decir "guardado" cuando lo único cierto es
@@ -301,13 +339,56 @@
   }
 
   // ------------------------------------------------------------
+  //  Miembros (supabase/miembros.sql, 2026-09-24)
+  // ------------------------------------------------------------
+  //  Quién tiene acceso, sacarlo, cambiarle el rol, readmitirlo, irse. Todo
+  //  lo decide la base: acá sólo se pide. Si la propuesta todavía no se
+  //  aplicó, las funciones no existen y el error viene marcado `noExiste`
+  //  para que la interfaz lo diga en vez de mostrar un error de programador.
+  const noExiste = (err) => !!err && (err.code === "PGRST202" || err.code === "42883" ||
+    /Could not find the function|does not exist/i.test(err.message || ""));
+
+  async function rpc(nombre, args) {
+    const { data, error } = await sb.rpc(nombre, args);
+    if (error) {
+      const e = errorDe(error.message);
+      e.noExiste = noExiste(error);
+      throw e;
+    }
+    return data;
+  }
+
+  const listarMiembros = (id) => rpc("listar_miembros", { p_equipo: id });
+  const revocarMiembro = (id, usuario) => rpc("revocar_miembro", { p_equipo: id, p_usuario: usuario });
+  const cambiarRol     = (id, usuario, rol) => rpc("cambiar_rol", { p_equipo: id, p_usuario: usuario, p_rol: rol });
+  const readmitir      = (id, usuario) => rpc("readmitir", { p_equipo: id, p_usuario: usuario });
+  const dejarEquipo    = (id) => rpc("dejar_equipo", { p_equipo: id });
+
+  // Completa el correo de una membresía anterior a miembros.sql, para que el
+  // dueño sepa quién es. Callada: si la función no existe, no pasa nada.
+  async function anotarMiCorreo() {
+    try { await sb.rpc("anotar_mi_correo"); } catch (_) { /* opcional */ }
+  }
+
+  // El historial de accesos: sólo lo ve el dueño (política de la tabla).
+  async function auditoria(id) {
+    const { data, error } = await sb.from("auditoria_miembros")
+      .select("momento, actor_etiqueta, accion, objetivo_etiqueta, detalle")
+      .eq("equipo_id", id).order("momento", { ascending: false }).limit(30);
+    if (error) return [];
+    return data || [];
+  }
+
+  // ------------------------------------------------------------
   //  Lo que la app usa
   // ------------------------------------------------------------
   window.NUBE = {
     disponible: true,
     configurado,
-    sb, sesion, entrar, salir, usuario, procesarRetorno,
+    sb, sesion, entrar, reingresar, salir, usuario, procesarRetorno,
     listarEquipos, vincular, leerEstado, enviarComando,
+    listarMiembros, revocarMiembro, cambiarRol, readmitir, dejarEquipo,
+    anotarMiCorreo, auditoria,
     // Cuánto espera esta capa el acuse del equipo. La app ajusta su propio
     // plazo con este número en vez de suponerlo (UX-260908-03).
     respuestaMs: RESPUESTA_MS,

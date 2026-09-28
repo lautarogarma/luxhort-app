@@ -89,7 +89,23 @@
         </div>
       </div>
 
+      <div id="n-paso-acceso" style="display:none">
+        <p class="nsub" id="n-acceso-sub"></p>
+        <div id="n-miembros"></div>
+        <details id="n-historial" style="display:none;margin-top:12px">
+          <summary class="nsub" style="cursor:pointer;margin:0">Historial de accesos</summary>
+          <ol id="n-auditoria"></ol>
+        </details>
+        <div class="row" style="margin-top:14px">
+          <button class="btn" id="n-volver-equipo" type="button">← Volver al equipo</button>
+          <button class="btn" id="n-dejar" type="button">Dejar este equipo</button>
+        </div>
+      </div>
+
       <div id="n-msg" role="status" aria-live="polite"></div>
+      <div class="row" id="n-reingreso" style="display:none;margin-top:8px">
+        <button class="btn acc" id="n-reingresar" type="button">Volver a ingresar</button>
+      </div>
       <div class="row" style="margin-top:14px">
         <button class="btn" id="n-salir" type="button" style="display:none">Cerrar sesión</button>
       </div>
@@ -122,7 +138,18 @@
     /* La misma identidad, ya dentro de la app. */
     #nube-barra{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
       font-size:12.5px;color:var(--dim);margin-bottom:12px}
-    #nube-barra .btn{flex:0 0 auto;min-width:auto;min-height:36px;padding:7px 12px;font-size:13px}`;
+    #nube-barra .btn{flex:0 0 auto;min-width:auto;min-height:36px;padding:7px 12px;font-size:13px}
+    /* Quién tiene acceso a un equipo (miembros.sql). */
+    .nmiembro{background:#21262d;border:1px solid #30363d;border-radius:9px;
+      padding:10px 12px;margin-top:8px;word-break:break-word}
+    .nmiembro small{display:block;color:var(--dim);font-size:11.5px;margin-top:2px}
+    .nmiembro .row{margin-top:8px}
+    .nmiembro .btn{flex:0 0 auto;min-width:auto;min-height:34px;padding:6px 10px;font-size:12.5px}
+    #n-auditoria{font-size:12px;color:var(--dim);line-height:1.5;padding-left:18px;margin:8px 0 0}
+    /* El aviso de solo lectura o de reingreso, dentro de la app. */
+    #nube-aviso{flex:1 1 100%;background:#2d2410;border:1px solid #6e5a1e;color:var(--tx);
+      border-radius:8px;padding:8px 10px;font-size:12.5px;line-height:1.45}
+    #nube-aviso .btn{margin-top:6px}`;
   document.head.appendChild(css);
   document.body.appendChild(capa);
 
@@ -138,18 +165,20 @@
 
   const msg = (t, clase) => { const m = $("n-msg"); m.textContent = t || ""; m.className = clase || ""; };
 
-  const PASOS = ["login", "vincular", "equipos"];
+  const PASOS = ["login", "vincular", "equipos", "acceso"];
   // Título de cada paso, para que el diálogo se anuncie por lo que hace y no
   // siempre por el nombre del producto.
   const TITULOS = {
     login: "LUXHorticultura", vincular: "Vincular un equipo", equipos: "Tus equipos",
+    acceso: "Acceso al equipo",
   };
   let pasoActual = "login";
 
   const paso = (cual) => {
     pasoActual = cual;
     PASOS.forEach((p) => { $("n-paso-" + p).style.display = p === cual ? "" : "none"; });
-    const conSesion = cual === "vincular" || cual === "equipos";
+    $("n-reingreso").style.display = "none";
+    const conSesion = cual === "vincular" || cual === "equipos" || cual === "acceso";
     $("n-salir").style.display = conSesion ? "" : "none";
     $("n-sub").style.display = cual === "login" ? "" : "none";
     $("n-titulo").textContent = TITULOS[cual] || "LUXHorticultura";
@@ -230,6 +259,8 @@
       const u = await N.usuario();
       correoActual = (u && (u.email || u.name)) || "";
     } catch (_) { correoActual = ""; }
+    // Para que el dueño vea un correo y no un identificador (miembros.sql).
+    N.anotarMiCorreo();
 
     let equipos = [];
     try { equipos = await N.listarEquipos(); }
@@ -257,9 +288,9 @@
       const titulo = document.createElement("span");
       titulo.textContent = eq.nombre;
       const detalle = document.createElement("small");
-      detalle.textContent = vivo ? "en línea"
+      detalle.textContent = (vivo ? "en línea"
         : edad === null ? "nunca se conectó"
-        : "sin señal hace " + fmtEdad(edad);
+        : "sin señal hace " + fmtEdad(edad)) + (eq.rol ? " · " + ROL_TEXTO[eq.rol] : "");
       envoltorio.appendChild(titulo);
       envoltorio.appendChild(detalle);
       b.appendChild(envoltorio);
@@ -267,7 +298,7 @@
       p.className = "npunto";
       p.style.background = vivo ? "var(--acc)" : "#6e7681";
       b.appendChild(p);
-      b.onclick = () => abrirEquipo(eq.id, eq.nombre);
+      b.onclick = () => abrirEquipo(eq.id, eq.nombre, eq.rol);
       host.appendChild(b);
     });
     // El foco recién ahora: `paso("equipos")` corrió con la lista vacía, así
@@ -277,6 +308,9 @@
 
   const fmtEdad = (s) => s < 3600 ? Math.round(s / 60) + " min"
     : s < 86400 ? Math.round(s / 3600) + " h" : Math.round(s / 86400) + " días";
+
+  // Los roles de la base (supabase/miembros.sql), dichos para personas.
+  const ROL_TEXTO = { dueno: "dueño", operador: "operador", lectura: "solo lectura", revocado: "sin acceso" };
 
   $("n-otro").onclick = () => { paso("vincular"); msg(""); };
 
@@ -303,7 +337,16 @@
   // ------------------------------------------------------------
   //  Abrir el equipo: de acá en adelante manda la app de siempre
   // ------------------------------------------------------------
-  function abrirEquipo(id, nombre) {
+  // El rol de quien entró en el equipo abierto (dueno, operador, lectura; nulo
+  // si la base no lo dijo). Lo usan `send` y la barra.
+  let rolActual = null;
+
+  function abrirEquipo(id, nombre, rol) {
+    rolActual = rol || null;
+    // Un borrador del horario es de UN equipo: si quedó uno sin guardar del
+    // equipo anterior, no se lleva a este (la página no se recarga al cambiar
+    // de equipo). Revisor, 2026-09-25.
+    if (typeof window.clearSchDirty === "function") window.clearSchDirty();
     capa.style.display = "none";
     document.title = nombre + " · LUXHorticultura";
 
@@ -320,10 +363,31 @@
       if (!o || !o.cmd) return false;
       // Las lecturas no viajan: el estado ya llega solo por el sondeo.
       if (o.cmd === "get_state" || o.cmd === "get_programs") return true;
-      const op = o.op || 0;
+      // ── El aviso de cada orden (2026-09-24) ──
+      //  La app local numera cada escritura en su propio `send` (opNueva) y
+      //  la cierra con lo que contesta el equipo. Este `send` lo reemplaza y
+      //  nunca la numeraba: por internet, una orden rechazada no decía nada.
+      //  Con las reglas de miembros.sql ("solo el dueño", "volvé a ingresar")
+      //  eso era un botón mudo. Ahora cada orden que viaja tiene su aviso.
+      const op = o.op || (typeof window.opNueva === "function" ? window.opNueva(o.cmd) : 0);
+      const cerrar = (estado, m) => {
+        if (op && typeof window.opCerrar === "function") window.opCerrar(op, estado, m);
+      };
+      // Solo lectura: la orden no sale. La base la rechazaría igual
+      // (miembros.sql); decirlo acá ahorra la vuelta y el error de la base.
+      if (rolActual === "lectura") {
+        cerrar("error", "Tu acceso a este equipo es de solo lectura");
+        avisar("Tu acceso a este equipo es de solo lectura: podés mirar, no operar. " +
+               "El dueño te puede dar permiso desde «Miembros».");
+        return false;
+      }
       N.enviarComando(id, o)
-        .then((r) => { if (op && window.opCerrar) opCerrar(op, r.ok ? "ok" : "error", r.msg); })
-        .catch((e) => { if (op && window.opCerrar) opCerrar(op, "error", e.message); });
+        .then((r) => cerrar(r.ok ? "ok" : "error", r.msg))
+        .catch((e) => {
+          cerrar("error", e.message);
+          // "Volvé a ingresar": el botón, no sólo el texto.
+          if (e.reingresar) avisar(e.message, true);
+        });
       return true;
     };
 
@@ -369,15 +433,246 @@
     barra.appendChild(volver);
 
     const quien = document.createElement("span");
-    quien.textContent = correoActual ? "· " + correoActual : "";
+    quien.textContent = (correoActual ? "· " + correoActual : "") +
+                        (rolActual ? " · " + ROL_TEXTO[rolActual] : "");
     barra.appendChild(quien);
+
+    // Quién tiene acceso (el dueño) o qué acceso tengo yo (los demás), y
+    // desde ahí, irse del equipo.
+    const acceso = document.createElement("button");
+    acceso.className = "btn";
+    acceso.textContent = rolActual === "dueno" ? "Miembros" : "Mi acceso";
+    acceso.onclick = () => abrirAcceso(id, nombre, rolActual);
+    barra.appendChild(acceso);
 
     const salir = document.createElement("button");
     salir.className = "btn";
     salir.textContent = "Cerrar sesión";
     salir.onclick = cerrarSesion;
     barra.appendChild(salir);
+
+    if (rolActual === "lectura")
+      avisar("Tu acceso a este equipo es de solo lectura: podés mirar, no operar. " +
+             "El dueño te puede dar permiso desde «Miembros».");
   }
+
+  // Un aviso que se queda a la vista en la barra, con el botón de volver a
+  // ingresar cuando es la salida. Texto por textContent: puede traer el
+  // nombre de una orden que viajó por la base.
+  function avisar(texto, conReingreso) {
+    const barra = $("nube-barra");
+    if (!barra) return;
+    let a = $("nube-aviso");
+    if (!a) {
+      a = document.createElement("div");
+      a.id = "nube-aviso";
+      a.setAttribute("role", "alert");
+      barra.appendChild(a);
+    }
+    a.textContent = "";
+    const t = document.createElement("div");
+    t.textContent = texto;
+    a.appendChild(t);
+    if (conReingreso) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn acc";
+      b.textContent = "Volver a ingresar";
+      b.onclick = () => {
+        b.disabled = true;
+        N.reingresar().catch((e) => { t.textContent = e.message; b.disabled = false; });
+      };
+      a.appendChild(b);
+    }
+  }
+
+  // ------------------------------------------------------------
+  //  Acceso al equipo: miembros, historial, irse (supabase/miembros.sql)
+  // ------------------------------------------------------------
+  //  P0 de Codex (2026-09-24): el dueño tiene que poder ver quién tiene
+  //  acceso, cambiarle el rol y sacarlo, y eso tiene que quedar registrado.
+  //  Todo lo decide la base; esta pantalla sólo pide y muestra. Los correos
+  //  y nombres de otras personas van SIEMPRE por textContent.
+  let equipoAcceso = null;
+
+  const fmtFecha = (iso) => {
+    try {
+      return new Date(iso).toLocaleString("es-AR", {
+        day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+    } catch (_) { return String(iso || ""); }
+  };
+
+  async function abrirAcceso(id, nombre, rol) {
+    equipoAcceso = { id, nombre, rol };
+    capa.style.display = "flex";
+    paso("acceso");
+    msg("");
+    $("n-titulo").textContent = "Acceso a " + nombre;
+    $("n-miembros").textContent = "";
+    $("n-historial").style.display = "none";
+    $("n-auditoria").textContent = "";
+    const sub = $("n-acceso-sub");
+    if (rol !== "dueno") {
+      sub.textContent = rol === "operador"
+        ? "Tu acceso: operador. Podés operar la luz y los programas; cambiar el WiFi, " +
+          "el modo de control o la nube, y actualizar el equipo, lo hace el dueño."
+        : rol === "lectura"
+        ? "Tu acceso: solo lectura. Podés mirar el equipo; para operarlo, pedile permiso al dueño."
+        : "No se pudo leer tu acceso a este equipo.";
+      enfocarPrimero();
+      return;
+    }
+    sub.textContent = "Quién puede entrar a este equipo desde internet. Los cambios valen en el acto.";
+    await pintarMiembros();
+    enfocarPrimero();
+  }
+
+  $("n-volver-equipo").onclick = () => { capa.style.display = "none"; };
+  $("n-reingresar").onclick = () => N.reingresar().catch((e) => msg(e.message, "err"));
+
+  async function pintarMiembros() {
+    const eq = equipoAcceso;
+    const host = $("n-miembros");
+    host.textContent = "";
+    let lista;
+    try { lista = await N.listarMiembros(eq.id); }
+    catch (e) {
+      msg(e.noExiste ? "La administración de miembros todavía no está habilitada en el servidor."
+                     : e.message, "err");
+      return;
+    }
+    (lista || []).forEach((m) => host.appendChild(filaMiembro(m)));
+
+    const reg = await N.auditoria(eq.id);
+    const ol = $("n-auditoria");
+    ol.textContent = "";
+    reg.forEach((r) => {
+      const li = document.createElement("li");
+      li.textContent = fmtFecha(r.momento) + " · " + textoAuditoria(r);
+      ol.appendChild(li);
+    });
+    $("n-historial").style.display = reg.length ? "" : "none";
+  }
+
+  function textoAuditoria(r) {
+    const actor = r.actor_etiqueta || "alguien";
+    const obj = r.objetivo_etiqueta || "una cuenta sin correo";
+    const det = r.detalle ? " (" + r.detalle + ")" : "";
+    switch (r.accion) {
+      case "alta":       return obj + " " + (r.detalle || "entró");
+      case "revocado":   return actor + " le quitó el acceso a " + obj + det;
+      case "rol":        return actor + " cambió el rol de " + obj + det;
+      case "readmitido": return actor + " readmitió a " + obj;
+      case "se_fue":     return obj + " dejó el equipo" + det;
+      default:           return r.accion + det;
+    }
+  }
+
+  function filaMiembro(m) {
+    const eq = equipoAcceso;
+    const d = document.createElement("div");
+    d.className = "nmiembro";
+    const quien = document.createElement("b");
+    quien.textContent = m.etiqueta || "Cuenta sin correo registrado";
+    d.appendChild(quien);
+    const det = document.createElement("small");
+    det.textContent = (ROL_TEXTO[m.rol] || m.rol) + " · desde " + fmtFecha(m.desde) +
+                      (m.soy_yo ? " · vos" : "");
+    d.appendChild(det);
+    if (m.soy_yo) return d;
+
+    const quienEs = m.etiqueta || "esta cuenta";
+    const acc = document.createElement("div");
+    acc.className = "row";
+    const boton = (texto, fn, clase) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "btn" + (clase ? " " + clase : "");
+      b.textContent = texto;
+      b.onclick = () => accion(b, fn);
+      acc.appendChild(b);
+    };
+    if (m.rol === "revocado") {
+      boton("Readmitir", async () => {
+        await N.readmitir(eq.id, m.usuario);
+        return "Readmitido: puede volver a vincularse con el código de la pantalla (entra como operador).";
+      });
+    } else {
+      if (m.rol !== "operador")
+        boton(m.rol === "dueno" ? "Pasar a operador" : "Dejar operar", async () => {
+          await N.cambiarRol(eq.id, m.usuario, "operador");
+          return "Listo: " + quienEs + " ahora es operador.";
+        });
+      if (m.rol !== "lectura")
+        boton("Solo lectura", async () => {
+          await N.cambiarRol(eq.id, m.usuario, "lectura");
+          return "Listo: " + quienEs + " ahora es solo lectura.";
+        });
+      if (m.rol !== "dueno")
+        boton("Hacer dueño", async () => {
+          if (!confirm("¿Hacer dueño a " + quienEs + "? Va a poder cambiar el WiFi, actualizar " +
+                       "el equipo y sacar a otros, incluido vos.")) return null;
+          await N.cambiarRol(eq.id, m.usuario, "dueno");
+          return "Listo: " + quienEs + " ahora también es dueño.";
+        });
+      boton("Quitar acceso", async () => {
+        if (!confirm("¿Quitarle el acceso a " + quienEs + "? Deja de ver y de operar el equipo " +
+                     "en el acto.")) return null;
+        const n = await N.revocarMiembro(eq.id, m.usuario);
+        return "Listo: " + quienEs + " ya no tiene acceso" +
+               (n ? " (se cancelaron " + n + " órdenes suyas pendientes)" : "") +
+               ". Si alguna vez vio el código de la pantalla, generá uno nuevo desde la " +
+               "pantalla del equipo: con otra cuenta podría volver a entrar.";
+      }, "off");
+    }
+    d.appendChild(acc);
+    return d;
+  }
+
+  // Corre una acción sobre un miembro y vuelve a pintar la lista. `null` =
+  // la persona se arrepintió en la confirmación.
+  async function accion(boton, fn) {
+    msg("");
+    $("n-reingreso").style.display = "none";
+    boton.disabled = true;
+    try {
+      const r = await fn();
+      if (r === null) { boton.disabled = false; return; }
+      await pintarMiembros();
+      msg(r, "ok");
+    } catch (e) {
+      msg(e.noExiste ? "La administración de miembros todavía no está habilitada en el servidor."
+                     : e.message, "err");
+      if (e.reingresar) $("n-reingreso").style.display = "";
+      boton.disabled = false;
+    }
+  }
+
+  // Irse del equipo. Si se va el último, el próximo que escriba el código de
+  // la pantalla queda como dueño: por eso se pide generar uno nuevo antes de
+  // entregar el equipo.
+  $("n-dejar").onclick = async () => {
+    const eq = equipoAcceso;
+    if (!eq) return;
+    if (!confirm("¿Dejar «" + eq.nombre + "»? Vas a dejar de verlo y de operarlo; para volver " +
+                 "hace falta el código de su pantalla." +
+                 (eq.rol === "dueno" ? " Si sos el último miembro, el próximo que escriba ese " +
+                  "código queda como dueño: si vas a entregar el equipo, generá un código nuevo " +
+                  "en la pantalla." : ""))) return;
+    const b = $("n-dejar");
+    b.disabled = true;
+    try {
+      await N.dejarEquipo(eq.id);
+      N.dejarDeSeguir();
+      equipoAcceso = null;
+      await despuesDeEntrar();
+      msg("Dejaste el equipo «" + eq.nombre + "».", "ok");
+    } catch (e) {
+      msg(e.noExiste ? "La administración de miembros todavía no está habilitada en el servidor."
+                     : e.message, "err");
+    }
+    b.disabled = false;
+  };
 
   // ------------------------------------------------------------
   //  Arranque

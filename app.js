@@ -365,6 +365,15 @@ function pintarUpd(u){
   const esc=t=>{const d=document.createElement("span");d.textContent=t;return d.innerHTML;};
   let html="", col="var(--tx)", buscar=true, hacer=false, txtHacer="Actualizar ahora";
   const inst="Instalada <b>"+esc(u.inst||"?")+"</b>";
+  // Sin clave de firma el equipo no puede actualizarse por internet: se dice
+  // y no se ofrece el botón (Codex CX-2026-09-25-F-03, 2026-09-26). `firma`
+  // ausente = firmware viejo, que sí buscaba: se deja como estaba.
+  if(u.firma===false || u.st==="deshabilitada"){
+    caja.innerHTML=inst+"<br><span style='color:var(--dim)'>Este equipo se actualiza por USB: "
+      +"las actualizaciones por internet están desactivadas.</span>";
+    caja.style.color=col; bb.disabled=true; bh.style.display="none";
+    return;
+  }
   switch(u.st){
     case "buscando":    html=inst+"<br>Buscando…"; buscar=false; break;
     case "al_dia":      html=inst+" · <span style='color:var(--acc)'>es la última versión</span>"; break;
@@ -712,9 +721,22 @@ function applyState(st){
         quien="Programa "+((p&&(p.n||p.name))||st.schedule.progid||"—");
       }
       const t=document.createElement("span"); t.textContent=quien;
+      // Fuera de la fase de luz el equipo publica la mezcla de REFERENCIA del
+      // ciclo, no la salida (baseSpectrumAt, decisión del 2026-08-17): decir
+      // "los de este momento" con la luminaria apagada era mentir (2026-09-25).
+      // Se usa el estado de la luz que publica el equipo (EstadoLuz: 1 apagada,
+      // 2 amanecer, 3 atardecer, 4 rampa, 5 plena) y no sólo `next`: en la
+      // ventana de far-red previa al encendido `next` ya dice "enciende" pero
+      // el far-red está al 100 % (revisor, 2026-09-25). Sin `luz` (firmware
+      // viejo) se deduce de `next`.
+      const ne=st.schedule.next;
+      const luz=(typeof st.luz==="number")?st.luz:((ne&&ne.on===true)?1:5);
+      const ref=" Los valores de abajo son la mezcla de referencia del ciclo, no la salida.";
+      const nota=luz===1?"Fuera del horario de luz: la luminaria está apagada."+ref
+        :(luz===2||luz===3)?(luz===2?"Amanecer":"Atardecer")+": sale sólo el far-red."+ref
+        :"La mezcla la ajusta el equipo a lo largo del ciclo. Los valores de abajo son los de este momento.";
       avisoAuto.innerHTML="🔄 <b>Espectro automático</b> — "+t.innerHTML+
-        "<br><span style='color:var(--dim)'>La mezcla la ajusta el equipo a lo largo del ciclo. "+
-        "Los valores de abajo son los de este momento.</span>";
+        "<br><span style='color:var(--dim)'>"+nota+"</span>";
     }
   }
   // Editando una etapa, los sliders son el EDITOR de esa etapa: pisarlos con
@@ -1448,6 +1470,18 @@ $("dyn-en").onclick=()=>{
   if(en&&dynMode===1)dynStages=NATURAL.map(e=>e.slice());
   pintarSw($("dyn-en"),en);
   $("dyn-body").style.display=en?"":"none";
+  // cycDraftDirty y no sólo el borrador: es la guarda con la que applyState()
+  // decide si pisar dynMode con el estado del equipo. Sin ella, el latido
+  // siguiente (<= 5 s) apagaba el interruptor y escondía la sección: el
+  // cambio del usuario se deshacía solo (2026-09-25, lo destapó qa_app4).
+  cycDraftDirty=true;
+  // Y el modo queda como "visto", igual que en Día natural y Personalizado.
+  // Sin esto el latido siguiente comparaba el modo local (el que acaba de
+  // elegir el usuario) contra el último del equipo, creía que el EQUIPO había
+  // cambiado de modo y movía la pestaña sola a Día natural: si el usuario ya
+  // había abierto Programas > Nuevo, el editor desaparecía a los <= 5 s
+  // (2026-09-25, qa_app4 en todas las corridas; smoke_espectro_dinamico 1b).
+  lastDynModeSeen=dynMode;
   markSchDirty();
 };
 // Las dos son PESTAÑAS. "Día natural" además aplica el modo en el momento;
@@ -1969,8 +2003,20 @@ function connect(){
       // que se lee como que el equipo falló. El motivo viaja en el propio
       // frame de cierre (event.reason), lo pone WebPortal.cpp del lado del
       // firmware.
+      //  4013 (CL-070) es OTRA cosa: el equipo se quedó sin memoria y rechaza
+      //  conexiones para no caerse. Reusar el 1013 acá hacía que la app dijera
+      //  "demasiadas sesiones" y mandara al usuario a cerrar pestañas, que no
+      //  arregla nada. Se usa el `reason` que manda el firmware cuando viene.
+      let esperaSaturado=0;
       if(ev&&ev.code===1013){
-        toast("Demasiadas sesiones abiertas a la vez — se cerró esta para hacer lugar. Reconectando…");
+        toast(ev.reason||"Demasiadas sesiones abiertas a la vez — se cerró esta para hacer lugar. Reconectando…");
+      } else if(ev&&ev.code===4013){
+        toast(ev.reason||"El equipo está sin memoria disponible. Reintentando en un momento…");
+        //  Y se espera MUCHO más antes de volver: si el equipo está al límite,
+        //  una app reconectando cada 1,5 s es exactamente lo que lo termina de
+        //  tumbar. 30-60 s con azar para que varios teléfonos no vuelvan todos
+        //  juntos y repitan la avalancha (recomendación de Codex sobre CL-070).
+        esperaSaturado=30000+Math.floor(Math.random()*30000);
       }
       // A los 4 intentos fallidos sin haber recibido nunca un estado real,
       // avisar con el modo demo — pero sin dejar de reintentar en el fondo
@@ -1980,8 +2026,10 @@ function connect(){
       // disponible unos segundos despues, sin mas opcion que recargar
       // a mano). ws.onopen ya saca de demo solo si esto revive.
       if(tries>3&&!state) enterDemo();
-      const delay=Math.min(1500*tries,12000);  // 1.5 → 3 → 4.5 → max 12 s
-      if(!demo) $("status").textContent="Reconectando (intento "+tries+")…";
+      const delay=esperaSaturado||Math.min(1500*tries,12000);  // 1.5 → 3 → 4.5 → max 12 s
+      if(!demo) $("status").textContent=esperaSaturado
+        ? "Equipo saturado — reintentando en "+Math.round(esperaSaturado/1000)+" s…"
+        : "Reconectando (intento "+tries+")…";
       reconnTimer=setTimeout(open,delay);
     };
     ws.onerror=()=>ws.close();
