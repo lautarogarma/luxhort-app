@@ -846,8 +846,12 @@ function applyState(st){
          +((sch.light||0)/60).toFixed(1).replace(/\.0$/,"")+" h de luz + "
          +((sch.dark||0)/60).toFixed(1).replace(/\.0$/,"")+" h de oscuridad")
       : ("Apaga a las "+offStr);
+    //  En día natural el interruptor puede quedar guardado en true (se prendió
+    //  en otro modo antes de cambiar) pero el firmware lo ignora: el resumen
+    //  decía "amanecer/atardecer 15 min" de un efecto que no ocurre (D25,
+    //  encontrado por el propietario desde el iPhone, 2026-09-30).
     $("sch-info").innerHTML=cabecera+statusHtml
-      +(sch.sunsim?(" &mdash; amanecer/atardecer "+sch.ramp+" min"):"")+".";
+      +((sch.sunsim&&sch.specmode!==1)?(" &mdash; amanecer/atardecer "+sch.ramp+" min"):"")+".";
     // Timeline 24h
     const tlBg=$("sch-tl-bg"),tlNow=$("sch-tl-now");
     if(tlBg){
@@ -932,24 +936,10 @@ function applyState(st){
   // que ofrecer aparte el amanecer/atardecer sería el mismo efecto dos veces
   // (decisión del usuario, 2026-08-17, confirmada el 2026-09-20). Se oculta y
   // se explica por qué: un hueco sin explicación se lee como una falla.
-  // La rampa de encendido se ve en TODOS los modos (hasta el 2026-09-20 también
-  // se ocultaba acá): si está configurada, la luz arranca con ella. El brillo
-  // global tampoco se toca.
-  {
-    const esNatural=dynMode===1;
-    $("natural-note").style.display=esNatural?"":"none";
-    $("fr-block").style.display=esNatural?"none":"";
-    $("onramp-body").style.display=$("onramp-en").classList.contains("on")?"":"none";
-    // El campo de minutos de amanecer/atardecer vive en la MISMA grilla que el
-    // botón Guardar, así que no alcanzaba con ocultar el bloque del switch:
-    // quedaba a la vista un ajuste que en día natural no hace absolutamente
-    // nada, justo debajo del cartel que dice que no se configura aparte
-    // (reportado desde la placa, 2026-08-17). Se oculta sólo la celda del campo
-    // y el botón pasa a ocupar las dos columnas — Guardar TIENE que seguir
-    // estando, porque guarda los horarios del fotoperíodo.
-    $("ss-min-block").style.display=esNatural?"none":"";
-    $("sch-save-cell").style.gridColumn=esNatural?"1/-1":"";
-  }
+  // La rampa de encendido: se ocultaba acá hasta el 2026-09-20, se vio en todos
+  // los modos hasta el 2026-09-30, y desde ahí vuelve a ocultarse en día
+  // natural (D25, ver pintarAjustesPorModo). El brillo global no se toca.
+  pintarAjustesPorModo();
   $("dyn-info").textContent=dynMode===0?"":(dynMode===1
     ?"Programa día natural (fijo, no editable). Tocá una etapa para verla."
     :dynMode===2
@@ -1001,6 +991,36 @@ function toast(msg){
 // valores viejos antes de poder cargar los buenos (UX-003). En un cultivo eso
 // puede encender o apagar la luz en un momento equivocado. Ahora se prepara
 // todo con calma y recién después se activa.
+// Qué ajustes se ofrecen según el modo (D25, decisión del propietario del
+// 2026-09-30, que revierte la del 2026-09-20): en día natural NO van ni el
+// amanecer/atardecer ni la rampa de encendido — "al tener la simulación de
+// día natural no es necesaria ninguna de las dos"; el firmware las ignora en
+// ese modo (Scheduler::rampaAplica) y la pantalla las oculta igual. Antes esto
+// vivía suelto en applyState() y sólo corría al llegar un estado: tocar el
+// fotoperíodo no lo repintaba. Sin fotoperíodo la rampa SÍ se ve (ahí la usa
+// el arranque al energizar, y el modo no rige); el amanecer se ve pero
+// deshabilitado, como en la pantalla: sin horario no hay bordes de luz donde
+// aplicarlo (paridad pantalla/app, 2026-09-30).
+function pintarAjustesPorModo(){
+  const fotoOn=$("sch-en").classList.contains("on");
+  const natural=dynMode===1&&fotoOn;
+  $("natural-note").style.display=natural?"":"none";
+  $("fr-block").style.display=natural?"none":"";
+  $("sch-fr").disabled=!fotoOn;
+  $("fr-block").style.opacity=fotoOn?"":"0.5";
+  $("onramp-block").style.display=natural?"none":"";
+  $("onramp-body").style.display=(!natural&&$("onramp-en").classList.contains("on"))?"":"none";
+  // El campo de minutos de amanecer/atardecer vive en la MISMA grilla que el
+  // botón Guardar, así que no alcanzaba con ocultar el bloque del switch:
+  // quedaba a la vista un ajuste que en día natural no hace absolutamente
+  // nada, justo debajo del cartel que dice que no se configura aparte
+  // (reportado desde la placa, 2026-08-17). Se oculta sólo la celda del campo
+  // y el botón pasa a ocupar las dos columnas — Guardar TIENE que seguir
+  // estando, porque guarda los horarios del fotoperíodo.
+  $("ss-min-block").style.display=natural?"none":"";
+  $("sch-save-cell").style.gridColumn=natural?"1/-1":"";
+}
+
 function toggleSchCfg(en){
   $("sch-cfg").style.display="";
   const m=$("sch-off-msg");
@@ -1265,7 +1285,7 @@ $("restaurar-receta").onclick=()=>{
   pintarRestaurar();
 };
 pintarRestaurar();
-$("sch-en").onclick=()=>{const en=!$("sch-en").classList.contains("on");pintarSw($("sch-en"),en);toggleSchCfg(en);paintCycMode();paintDynTab();markSchDirty();};
+$("sch-en").onclick=()=>{const en=!$("sch-en").classList.contains("on");pintarSw($("sch-en"),en);toggleSchCfg(en);paintCycMode();paintDynTab();pintarAjustesPorModo();markSchDirty();};
 // Los interruptores marcan BORRADOR. Antes llamaban a saveSchedule(), que lee
 // el formulario COMPLETO: tocar "amanecer/atardecer" podia guardar de paso una
 // hora, una duracion o un ancla que el usuario habia tipeado y todavia no
@@ -1274,7 +1294,7 @@ $("sch-fr").onclick=()=>{pintarSw($("sch-fr"),!$("sch-fr").classList.contains("o
 $("onramp-en").onclick=()=>{
   const on=!$("onramp-en").classList.contains("on");
   pintarSw($("onramp-en"),on);
-  $("onramp-body").style.display=on?"":"none";
+  pintarAjustesPorModo();
   markSchDirty();
 };
 $("sch-save").onclick=()=>{saveSchedule($("sch-en").classList.contains("on"));};
@@ -1483,6 +1503,10 @@ $("dyn-en").onclick=()=>{
   // (2026-09-25, qa_app4 en todas las corridas; smoke_espectro_dinamico 1b).
   lastDynModeSeen=dynMode;
   markSchDirty();
+  //  D25 (2026-09-30): repintar YA qué ajustes se ofrecen. Hasta acá recién lo
+  //  hacía el latido siguiente (hasta 5 s), y en ese lapso el amanecer y la
+  //  rampa seguían a la vista y se podían tocar en día natural.
+  pintarAjustesPorModo();
 };
 // Las dos son PESTAÑAS. "Día natural" además aplica el modo en el momento;
 // "Programas" sólo muestra la lista, y el modo se aplica al elegir uno.
@@ -1521,6 +1545,7 @@ $("dyn-natural").onclick=()=>{
   uiTab=1;dynMode=1;lastDynModeSeen=1;
   dynStages=NATURAL.map(e=>e.slice());
   paintDynTab();
+  pintarAjustesPorModo();   // D25: el amanecer y la rampa se van en el acto
   saveSchedule($("sch-en").classList.contains("on"));
 };
 // Espectro propio por tramos del día. El firmware ya lo soportaba (specMode 2,
@@ -1547,9 +1572,10 @@ $("dyn-custom").onclick=()=>{
   drawSpd();
   markSchDirty();
   $("dyn-info").textContent="Editando \""+STAGE_NAMES[dynSel]+"\": mové los canales y tocá Guardar.";
+  pintarAjustesPorModo();   // D25: saliendo de día natural vuelven
 };
 $("dyn-progs").onclick=()=>{
-  uiTab=3;paintDynTab();
+  uiTab=3;paintDynTab();pintarAjustesPorModo();
   send({cmd:"get_programs"});renderProgChips();
 };
 
@@ -1930,7 +1956,9 @@ function demoHandle(o){
 
 // ---------- conexión ----------
 function connect(){
-  let tries=0, reconnTimer=null;
+  //  recibioEstadoReal y no `state` como centinela: enterDemo() puebla `state`
+  //  y el backoff de abajo quedaba muerto (revisor FIX 2, 2026-09-29).
+  let tries=0, reconnTimer=null, recibioEstadoReal=false;
   function open(){
     if(reconnTimer){clearTimeout(reconnTimer);reconnTimer=null;}
     ws=new WebSocket((location.protocol==="https:"?"wss://":"ws://")+location.host+"/ws");
@@ -1957,7 +1985,7 @@ function connect(){
     ws.onmessage=e=>{
       try{
         const d=JSON.parse(e.data);
-        if(d.evt==="state")applyState(d);
+        if(d.evt==="state"){recibioEstadoReal=true;applyState(d);}
         if(d.evt==="command_result"){
           if(d.cmd==="set_schedule"&&d.ok)clearSchDirty();
           // El resultado se ancla a la operación que lo pidió. Si el equipo no
@@ -2016,6 +2044,13 @@ function connect(){
         //  una app reconectando cada 1,5 s es exactamente lo que lo termina de
         //  tumbar. 30-60 s con azar para que varios teléfonos no vuelvan todos
         //  juntos y repitan la avalancha (recomendación de Codex sobre CL-070).
+        esperaSaturado=30000+Math.floor(Math.random()*30000);
+      } else if(tries>5&&!recibioEstadoReal){
+        //  D24/FIX 2 (2026-09-29): el rechazo por memoria pasa ANTES del
+        //  apretón de manos y llega como 1006 sin motivo (el 4013 nunca viene
+        //  por ese camino). Sin estado real tras 6 intentos: mismo backoff que
+        //  4013, o la reconexión corta repetía la avalancha de CL-070. Un
+        //  corte con la app ya andando NO entra acá.
         esperaSaturado=30000+Math.floor(Math.random()*30000);
       }
       // A los 4 intentos fallidos sin haber recibido nunca un estado real,

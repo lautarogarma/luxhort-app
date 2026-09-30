@@ -271,9 +271,9 @@ button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-
        curva ya trae su propio far-red de alba/ocaso. -->
   <div id="natural-note" style="display:none;margin-top:12px;padding:10px 12px;border-radius:8px;
        background:rgba(63,185,80,.08);border:1px solid rgba(63,185,80,.3);font-size:13px;line-height:1.5">
-    <b>Modo Día natural.</b> El amanecer/atardecer ya viene incluido en la curva del día
-    (far red al 100 % al alba y al ocaso), así que no se configura aparte. La <b>rampa de
-    encendido</b> y el <b>brillo global</b> siguen disponibles.
+    <b>Modo Día natural.</b> El amanecer/atardecer y la rampa de encendido ya vienen
+    incluidos en la curva del día (arranca en el piso y sube sola, con far red al 100 % al
+    alba y al ocaso), así que no se configuran aparte. El <b>brillo global</b> sigue disponible.
   </div>
 
   <div class="schon" id="fr-block" style="margin-top:12px;margin-bottom:0">
@@ -287,7 +287,7 @@ button.btn.sel{background:var(--acc);border-color:var(--acc);color:#04130a;font-
        apagado — y hasta ahora sólo se podía configurar desde la pantalla. -->
   <div class="schon" id="onramp-block" style="margin-top:12px;margin-bottom:0">
     <div><b style="font-size:13px">Rampa de encendido</b>
-      <div class="foot" style="text-align:left;margin:0">Al encender, la luz sube de 0 hasta el valor configurado en vez de saltar de golpe</div></div>
+      <div class="foot" style="text-align:left;margin:0">Al encender, la luz sube desde el mínimo (10 %) hasta el valor configurado en vez de saltar de golpe</div></div>
     <button class="sw" id="onramp-en" role="switch" aria-checked="false" aria-label="Rampa de encendido"></button>
   </div>
   <div class="grid2" id="onramp-body" style="margin-top:8px;display:none">
