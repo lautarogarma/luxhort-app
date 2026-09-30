@@ -1818,7 +1818,17 @@ $("wf-save").onclick=()=>{
 // equipo las maneja el firmware (compiladas las dos primeras, generada la
 // tercera). Pedirlas acá era una forma de equivocarse.
 $("nu-activar").onclick=()=>send({cmd:"set_nube",on:true});
-$("nu-apagar").onclick=()=>send({cmd:"set_nube",on:false});
+//  D26 (2026-09-30): era UN toque, sin confirmación, y el apagado recién rige
+//  en el próximo reinicio mientras el estado sigue diciendo "en línea": un
+//  toque accidental y, en el próximo corte de luz, el dueño pierde el control
+//  remoto sin saber por qué. Lo destapó la auditoría (qa_boton_por_boton lo
+//  tocaba en cada vuelta y la nube aparecía "desactivada" tras un reinicio).
+$("nu-apagar").onclick=()=>{
+  if(!confirm("Desactivar el control por internet.\n\nDespués del próximo reinicio o corte de luz "+
+      "el equipo NO se va a poder manejar desde fuera de esta red (la app por internet deja "+
+      "de verlo). Se vuelve a activar desde acá, y también rige recién al reiniciar.\n\n¿Desactivarlo?")) return;
+  send({cmd:"set_nube",on:false});
+};
 $("upd-buscar").onclick=()=>{
   if(demo){toast("Primero conectate al equipo");return;}
   if(send({cmd:"check_update"})){ $("upd-buscar").disabled=true; $("upd-estado").textContent="Buscando…"; }
