@@ -109,6 +109,11 @@
       <div class="row" style="margin-top:14px">
         <button class="btn" id="n-salir" type="button" style="display:none">Cerrar sesión</button>
       </div>
+      <!-- Visible SIEMPRE, también antes de entrar: quien crea una cuenta
+           tiene que poder leer qué se guarda (P-4, publicada 2026-09-30). -->
+      <p class="nsub" style="margin:16px 0 0;text-align:center">
+        <a href="./privacidad.html" style="color:var(--acc)">Privacidad y soporte</a>
+      </p>
     </div>`;
 
   const css = document.createElement("style");
