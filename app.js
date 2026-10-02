@@ -535,6 +535,12 @@ function pintarResumen(st){
 }
 
 function applyState(st){
+  // Un estado sin horario o sin canales no es de este firmware (o llegó
+  // cortado): se ignora y queda pintado el último bueno. Antes un
+  // st.schedule ausente tiraba un TypeError a mitad del pintado y la app
+  // quedaba a medio actualizar (auditoría integral 2026-10-01).
+  if(!st||typeof st!=="object"||!st.schedule||typeof st.schedule!=="object"||
+     !Array.isArray(st.channels)) return;
   state=st;
   // Aviso de rol: el firmware ignora cualquier comando de control que llegue
   // por WS salvo en rol 2 (WiFi Maestro) — sin este aviso, mover un slider en
@@ -655,11 +661,16 @@ function applyState(st){
         // está pasando ni qué va a olvidar.
         // n.fail = por qué no entra ("clave" / "nored" / "otro"): el equipo lo
         // supo siempre y no lo decía (2026-09-16).
+        // "senal" (2026-10-01): la clave guardada YA conectó alguna vez, así que
+        // un timeout es casi siempre señal o router reiniciándose. Ámbar, no
+        // rojo: no hay que reconfigurar nada salvo que se haya cambiado la clave.
         const why=n.fail==="clave"?"❌ La clave de la red es incorrecta: volvé a configurarla"
                  :n.fail==="nored"?"❌ No se encuentra la red: revisá el nombre o el alcance"
-                 :n.fail==="otro" ?"❌ No se pudo conectar (motivo "+(n.failn|0)+")":"";
+                 :n.fail==="otro" ?"❌ No se pudo conectar (motivo "+(n.failn|0)+")"
+                 :n.fail==="senal"?"⚠️ El router no responde (señal débil o reiniciándose): reintenta solo. Si cambiaste la clave del router, volvé a configurarla":"";
+        const whyCol=n.fail==="senal"?"#e3b341":"#f85149";
         w.innerHTML="⚠️ <b>Sin red</b>"+(n.off?" hace "+fmtDur(n.off):"")
-          +(why?"<br><span style='color:#f85149'>"+why+"</span>":"")
+          +(why?"<br><span style='color:"+whyCol+"'>"+why+"</span>":"")
           +(n.cfg?"<br><span style='color:var(--dim)'>Busca <b>"+esc(n.cfg)+"</b></span>":"")
           +(n.next?"<br><span style='color:var(--dim)'>Reintenta en "+fmtDur(n.next)+"</span>":"");
         w.style.borderColor=why?"rgba(248,81,73,.5)":"rgba(232,179,57,.5)";
@@ -1205,6 +1216,20 @@ let activePreset=-1;
 // al lado de los presets de uso diario. No se quita la capacidad — se quita el
 // accidente. (Ver MEJ-013 en MEJORAS-PROPUESTAS-CODEX.md.)
 const UVA_CONFIRM_PCT=50;
+// La misma advertencia para todo lo que puede llevar el UVA por encima del
+// umbral sin pasar por el slider del canal: la previsualización del editor,
+// un programa y las etapas propias (auditoría integral 2026-10-01; hasta
+// entonces esos tres caminos lo encendían sin preguntar).
+function confirmarUva(pct,que){
+  if(!(pct>UVA_CONFIRM_PCT)) return true;
+  return confirm(que+" enciende el canal "+CH_NOMBRE[4]+" al "+Math.round(pct)+" %.\n\n"
+    +"Usá protección ocular. No mires la luminaria de cerca ni permanezcas "
+    +"bajo ella mientras el UVA esté encendido.\n\n¿Seguir?");
+}
+const uvaMaxDe=filas=>Math.max(0,...(filas||[]).map(f=>Number(f&&f[4])||0));
+// Etapas ya confirmadas: guardar el fotoperíodo varias veces con las mismas
+// etapas no vuelve a preguntar.
+let uvaEtapasOk="";
 function applyPresetValues(name,p){
   const values=Array.from({length:NCH},(_,i)=>Math.max(0,Math.min(100,Number(p&&p[i])||0)));
   if(values[4]>UVA_CONFIRM_PCT &&
@@ -1326,6 +1351,8 @@ function clearSchDirty(){
 }
 ["sch-on","sch-off","sch-ramp","cyc-light","cyc-dark","cyc-anchor","onramp-min"]
   .forEach(id=>{const el=$(id);if(el)el.addEventListener("input",markSchDirty);});
+// Encendido = apagado es luz 24 h: Día natural se atenúa en el acto (P-12).
+["sch-on","sch-off"].forEach(id=>{const el=$(id);if(el)el.addEventListener("input",()=>paintDynTab());});
 ["sch-on","sch-off","sch-ramp","cyc-light","cyc-dark"].forEach(id=>{const el=$(id);if(el)el.addEventListener("keydown",e=>{if(e.key==="Enter")$("sch-save").click();});});
 
 // ---------- modo de ciclo ----------
@@ -1391,6 +1418,7 @@ function chooseCycleMode(mode){
     $("cyc-anchor").value=d.toISOString().slice(0,16);
   }
   paintCycMode();
+  paintDynTab();   // en superciclo Día natural vuelve a ofrecerse (P-12)
 }
 $("cyc-daily").onclick=()=>chooseCycleMode(0);
 $("cyc-free").onclick=()=>chooseCycleMode(1);
@@ -1446,7 +1474,21 @@ function saveSchedule(en){
     if(base.sunsim&&dark>0&&ramp>0&&ramp*2>=dark){
       toast("La ventana far red debe dejar oscuridad entre ambos pulsos");return;
     }
+    // Día natural con luz 24 h no se ofrece (P-12, propietario 2026-10-01):
+    // la curva del sol necesita alba y ocaso. El equipo también lo rechaza;
+    // acá se dice antes de mandar.
+    if(dynMode===1&&on===off){
+      toast("Día natural necesita noche: con luz las 24 h elegí espectro fijo, etapas o un programa");
+      return;
+    }
     sch=Object.assign({},base,{on,off});
+  }
+  if(en&&dynMode===2){
+    const firma=JSON.stringify(dynStages);
+    if(firma!==uvaEtapasOk){
+      if(!confirmarUva(uvaMaxDe(dynStages),"El espectro por etapas")) return;
+      uvaEtapasOk=firma;
+    }
   }
   // El "guardado" real lo confirma el equipo con command_result; acá sólo se
   // informa que salió. Si no salió, send() ya avisó (UX-001/UX-011).
@@ -1512,6 +1554,13 @@ $("dyn-en").onclick=()=>{
 // "Programas" sólo muestra la lista, y el modo se aplica al elegir uno.
 // paintDynTab() repinta el resaltado ya mismo: esperar al próximo latido hacía
 // que el botón recién tocado tardara segundos en encenderse.
+// ¿El formulario del fotoperíodo pide luz las 24 h? Ciclo diario con el
+// encendido igual al apagado (es lo que el equipo interpreta como 24 h).
+function luz24hEnFormulario(){
+  if(cycMode!==0) return false;
+  const on=$("sch-on").value, off=$("sch-off").value;
+  return !!on&&!!off&&t2m(on)===t2m(off);
+}
 function paintDynTab(){
   $("dyn-natural").classList.toggle("sel",uiTab===1);
   // Se VE deshabilitado, no sólo se comporta como tal: un botón que ignora el
@@ -1519,8 +1568,10 @@ function paintDynTab(){
   // el onclick de dyn-natural para el porqué de la regla.
   {
     const hayFoto=$("sch-en").classList.contains("on");
-    $("dyn-natural").style.opacity=hayFoto?"":"0.45";
-    $("dyn-natural").title=hayFoto?"":"Necesita el fotoperíodo activo";
+    const sinNoche=luz24hEnFormulario();
+    $("dyn-natural").style.opacity=(hayFoto&&!sinNoche)?"":"0.45";
+    $("dyn-natural").title=!hayFoto?"Necesita el fotoperíodo activo"
+                          :sinNoche?"Necesita noche: con luz las 24 h no se ofrece":"";
   }
   $("dyn-custom").classList.toggle("sel",uiTab===2);
   $("dyn-progs").classList.toggle("sel",uiTab===3);
@@ -1540,6 +1591,12 @@ $("dyn-natural").onclick=()=>{
   //  2026-09-22.
   if(!$("sch-en").classList.contains("on")){
     toast("Día natural necesita el fotoperíodo activo");
+    return;
+  }
+  // Ni con luz las 24 h (P-12, propietario 2026-10-01): sin alba ni ocaso
+  // la curva no tiene forma; daba casi una hora diaria con sólo far-red.
+  if(luz24hEnFormulario()){
+    toast("Día natural necesita noche: con luz las 24 h no se ofrece");
     return;
   }
   uiTab=1;dynMode=1;lastDynModeSeen=1;
@@ -1607,8 +1664,8 @@ function renderProgChips(){
     b.title="Aplicar "+p.n;
     if(esCustom){b.style.borderTopRightRadius="0";b.style.borderBottomRightRadius="0";}
     b.onclick=()=>{
-      send({cmd:"apply_program",id:p.id});
-      toast("Aplicando "+p.n+"…");
+      if(!confirmarUva(uvaMaxDe((p.s||[]).map(st=>st&&st.p)),"El programa \""+p.n+"\"")) return;
+      if(send({cmd:"apply_program",id:p.id})) toast("Aplicando "+p.n+"…");
     };
     grupo.appendChild(b);
 
@@ -1705,6 +1762,7 @@ $("pe-preview").onclick=()=>{
     toast("Con el fotoperíodo activo la salida la decide el horario — no se puede previsualizar");
     return;
   }
+  if(!confirmarUva(peMix[4],"Esta mezcla")) return;
   if(send({cmd:"set_all",pct:peMix.slice()}))
     toast("Mezcla aplicada a la luminaria — reemplaza la receta actual");
 };
@@ -1909,7 +1967,14 @@ function showNetworks(nets,ok){
     sigSpan.style.cssText="color:var(--dim);font-size:12px";
     sigSpan.textContent=`${sig} ${n.rssi}dBm${n.open?" 🔓":""}`;
     d.appendChild(nameSpan); d.appendChild(sigSpan);
+    // Se elige también con el teclado y lo anuncia un lector de pantalla:
+    // antes era un <div> que sólo respondía al dedo (auditoría integral
+    // 2026-10-01).
+    d.setAttribute("role","button");
+    d.tabIndex=0;
+    d.setAttribute("aria-label","Elegir la red "+(n.ssid||"oculta")+", señal "+n.rssi+" dBm"+(n.open?", abierta":""));
     d.onclick=()=>{$("wf-ssid").value=n.ssid||"";host.style.display="none";$("wf-pass").focus();};
+    d.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();d.onclick();}};
     host.appendChild(d);
   });
 }
