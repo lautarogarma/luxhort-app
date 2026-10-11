@@ -346,8 +346,18 @@
   // si la base no lo dijo). Lo usan `send` y la barra.
   let rolActual = null;
 
+  // Órdenes que quedaron SIN CONFIRMAR (CX-2026-10-02-02), por equipo, tipo
+  // de orden y objeto: cuándo. Repetir la misma en los 10 minutos siguientes pide
+  // confirmación, porque la anterior pudo haberse aplicado. Recomendación del
+  // agente arquitecto; la decisión final es del propietario (P-20).
+  const inciertas = new Map();
+  const INCIERTA_MS = 10 * 60 * 1000;
+
   function abrirEquipo(id, nombre, rol) {
     rolActual = rol || null;
+    // La app de siempre pregunta esto para lo que por internet no puede
+    // funcionar (por ahora, buscar redes WiFi: auditoría del 2026-10-03, A3-A2).
+    window.porInternet = true;
     // Un borrador del horario es de UN equipo: si quedó uno sin guardar del
     // equipo anterior, no se lleva a este (la página no se recarga al cambiar
     // de equipo). Revisor, 2026-09-25.
@@ -386,8 +396,43 @@
                "El dueño te puede dar permiso desde «Miembros».");
         return false;
       }
+      // Por orden Y por su objeto (el canal de set_channel, el programa de
+      // apply/save/delete_program): dos canales distintos no se confunden
+      // (revisor, 2026-10-03).
+      const objeto = o.id !== undefined ? o.id
+                   : (o.prog && o.prog.id !== undefined ? o.prog.id : "");
+      const clave = id + ":" + o.cmd + ":" + objeto;
+      const antes = inciertas.get(clave);
+      if (antes && Date.now() - antes < INCIERTA_MS) {
+        if (!window.confirm("La orden anterior de este tipo quedó SIN CONFIRMAR: el equipo " +
+                            "pudo haberla aplicado. Mirá el estado actual antes de repetirla.\n\n" +
+                            "¿Enviarla igual?")) {
+          cerrar("error", "No se envió: revisá el estado primero");
+          return false;
+        }
+      }
+      inciertas.delete(clave);
       N.enviarComando(id, o)
-        .then((r) => cerrar(r.ok ? "ok" : "error", r.msg))
+        .then((r) => {
+          cerrar(r.ok ? "ok" : r.incierto ? "incierto" : "error", r.msg);
+          if (r.incierto) {
+            inciertas.set(clave, Date.now());
+            // Si después llega un resultado seguro, se dice y se levanta la marca.
+            if (r.seguir) r.seguir.then((fin) => {
+              if (!fin || fin.incierto) return;
+              inciertas.delete(clave);
+              avisar(fin.ok ? "La orden que había quedado sin confirmar SÍ se aplicó."
+                            : "La orden que había quedado sin confirmar NO se aplicó: " + fin.msg);
+            });
+          }
+          // Igual que el camino local (index.html, command_result): un horario
+          // guardado deja de ser borrador. Sin esto quedaba «sin guardar» para
+          // siempre, los campos dejaban de seguir al equipo, y un segundo
+          // Guardar mandaba el horario viejo y pisaba un cambio ajeno
+          // (auditoría del 2026-10-03, A3-A1).
+          if (r.ok && o && o.cmd === "set_schedule" &&
+              typeof window.clearSchDirty === "function") window.clearSchDirty();
+        })
         .catch((e) => {
           cerrar("error", e.message);
           // "Volvé a ingresar": el botón, no sólo el texto.

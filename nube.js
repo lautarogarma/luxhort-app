@@ -270,6 +270,14 @@
       p_codigo: String(codigo || "").trim().toUpperCase(),
     });
     if (error) throw new Error(traducir(error.message));
+    // CL-142 (2026-10-11): con el arreglo del contador de intentos, un código
+    // incorrecto ya no llega como excepción de la base (la excepción deshacía
+    // el insert del fallo y el límite de 10/hora nunca contaba): llega como
+    // CERO FILAS. Se lanza acá EL MISMO texto que daba la base, así el manejo
+    // de nube-ui.js (que busca /incorrecto/) sigue idéntico. Compatible con
+    // la base vieja, que para ese caso sigue tirando la excepción de arriba.
+    if (!data || data.length === 0)
+      throw new Error("Código incorrecto, o el equipo no está conectado a internet en este momento.");
     return data;   // el id del equipo
   }
 
@@ -305,15 +313,16 @@
     // Esperar a que el equipo lo resuelva. No se da por aplicado al
     // insertarlo: eso sería decir "guardado" cuando lo único cierto es
     // "anotado".
+    const leer = async () => {
+      const { data: c } = await sb.from("comandos")
+        .select("estado, resultado").eq("id", data.id).maybeSingle();
+      return c ? resultadoDe(c) : null;
+    };
     const hasta = Date.now() + RESPUESTA_MS;
     while (Date.now() < hasta) {
       await new Promise((r) => setTimeout(r, 1500));
-      const { data: c } = await sb.from("comandos")
-        .select("estado, resultado").eq("id", data.id).maybeSingle();
-      if (!c) continue;
-      if (c.estado === "aplicado")  return { ok: true,  msg: c.resultado || "Aplicado" };
-      if (c.estado === "rechazado") return { ok: false, msg: c.resultado || "El equipo lo rechazó" };
-      if (c.estado === "vencido")   return { ok: false, msg: "Venció sin que el equipo lo tomara" };
+      const r = await leer();
+      if (r) return r;
     }
 
     // ── Rendirse NO es olvidarse ──
@@ -332,10 +341,46 @@
       const { data: c } = await sb.rpc("cancelar_comando", { p_id: data.id });
       cancelado = c === true;
     } catch (_) { /* si falla, el vencimiento del servidor lo cierra igual */ }
+    if (cancelado) return { ok: false, msg: "El equipo no respondió — la orden se canceló" };
 
-    return { ok: false, msg: cancelado
-      ? "El equipo no respondió — la orden se canceló"
-      : "El equipo no respondió — la orden ya estaba en curso" };
+    // ── No se pudo cancelar: el equipo ya la tenía (CX-2026-10-02-02) ──
+    //  Hasta la 0.6.9 esto decía «ya estaba en curso» en rojo, como un
+    //  rechazo. No lo es: pudo aplicarse. Se lee la fila UNA vez más (pudo
+    //  cerrarse entre la última consulta y la cancelación) y, si sigue
+    //  abierta, se dice «sin confirmar» y se sigue mirando dos minutos más:
+    //  si después llega un resultado seguro, la interfaz lo avisa.
+    let ultima = null;
+    try { ultima = await leer(); } catch (_) { /* se trata como sin confirmar */ }
+    if (ultima) return ultima;
+    const seguir = (async () => {
+      const fin = Date.now() + 120000;
+      while (Date.now() < fin) {
+        await new Promise((r) => setTimeout(r, 3000));
+        try {
+          // Cerrada, aunque sea «indeterminado»: la base ya no la va a tocar
+          // salvo que el equipo confirme tarde, y eso lo ve el estado.
+          const r = await leer();
+          if (r) return r;
+        } catch (_) { /* un sondeo que falla no termina la espera */ }
+      }
+      return null;
+    })();
+    return { ok: false, incierto: true, seguir,
+             msg: "El equipo la recibió y todavía no confirmó: puede haberse aplicado. " +
+                  "Revisá el estado antes de repetirla" };
+  }
+
+  // El estado de una fila de `comandos`, en lo que entiende la app; null si
+  // todavía está abierta. «indeterminado» es nuevo (ordenes-indeterminadas.sql,
+  // CX-2026-10-02): el equipo la tomó y no se sabe si se aplicó. No es ni un
+  // éxito ni un rechazo, y la interfaz lo pinta distinto (ámbar).
+  function resultadoDe(c) {
+    if (c.estado === "aplicado")      return { ok: true,  msg: c.resultado || "Aplicado" };
+    if (c.estado === "rechazado")     return { ok: false, msg: c.resultado || "El equipo lo rechazó" };
+    if (c.estado === "vencido")       return { ok: false, msg: "Venció sin que el equipo lo tomara" };
+    if (c.estado === "indeterminado") return { ok: false, incierto: true,
+      msg: c.resultado || "No se sabe si se aplicó: revisá el estado antes de repetirla" };
+    return null;
   }
 
   // ------------------------------------------------------------

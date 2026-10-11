@@ -1070,6 +1070,9 @@ const OPS_TXT={enviando:"Enviando…",
                esperando:"Esperando al equipo…",
                ok:"Aplicado en el equipo",
                error:"Rechazado por el equipo",
+               // Por internet, una orden que el equipo tomó y no se sabe si
+               // aplicó (CX-2026-10-02-02): ni ok ni error, en ámbar.
+               incierto:"Sin confirmar — revisá el estado antes de repetirla",
                sin:"Sin conexión — no se envió"};
 function pintarOps(){
   const host=$("ops"); if(!host)return;
@@ -1081,6 +1084,7 @@ function pintarOps(){
   vivas.forEach(o=>{
     const d=document.createElement("div");
     d.style.color=o.estado==="ok"?"var(--acc)"
+                 :o.estado==="incierto"?"var(--warn)"
                  :(o.estado==="enviando"||o.estado==="esperando")?"var(--tx)":"#ff9d95";
     const n=document.createElement("b"); n.textContent=o.nombre+": ";
     d.appendChild(n);
@@ -1128,7 +1132,8 @@ function opCerrar(id,estado,msg){
   pintarOps();
   // Se deja ver el resultado y despues se retira. Los errores duran mas:
   // son los que hay que alcanzar a leer.
-  setTimeout(()=>{opsPend.delete(id);pintarOps();}, estado==="ok"?2500:7000);
+  setTimeout(()=>{opsPend.delete(id);pintarOps();},
+             estado==="ok"?2500:estado==="incierto"?15000:7000);
 }
 const CMD_ESCRIBE=new Set(["set_channel","set_all","set_dim","set_schedule",
                            "apply_program","save_program","delete_program",
@@ -1496,7 +1501,10 @@ function saveSchedule(en){
 }
 
 // ---------- espectro dinámico ----------
-const NATURAL=[[35,25,25,0,0],[50,75,35,0,0],[60,100,45,0,0],[50,75,35,0,0],[35,25,25,0,0]];
+// Vista ilustrativa de las 5 etapas del programa fijo "Día natural". Desde
+// D29 (propietario, 2026-10-05) la curva sube al doble y se ameseta del 25 al
+// 75 % de la fase: mañana, mediodía y tarde muestran la receta plena.
+const NATURAL=[[35,25,25,0,0],[60,100,45,0,0],[60,100,45,0,0],[60,100,45,0,0],[35,25,25,0,0]];
 const STAGE_NAMES=["🌅 Amanecer","☕ Mañana","☀️ Mediodía","🌤 Tarde","🌇 Atardecer"];
 let dynMode=0,dynStages=NATURAL.map(e=>e.slice()),dynSel=2,uiTab=1;
 // Último modo de espectro visto DEL EQUIPO. Sirve para distinguir "el equipo
@@ -1921,6 +1929,13 @@ function wfEstado(txt,clase){
 }
 $("wf-scan").onclick=()=>{
   if(demo){toast("Primero conectate a la red LUXHorticultura del equipo");return;}
+  // Por internet la lista no puede volver: el equipo la arma tarde, cuando la
+  // orden ya se confirmó (auditoría del 2026-10-03, A3-A2). Se dice en vez de
+  // mostrar «buscando» y después dos mensajes que se contradicen.
+  if(window.porInternet){
+    wfEstado("Buscar redes funciona sólo desde la red local del equipo: por internet no se puede traer la lista. Podés escribir el nombre de la red a mano.","err");
+    return;
+  }
   $("wf-scan").textContent="🔄 Buscando...";
   $("wf-scan").disabled=true;
   $("wf-scan").setAttribute("aria-busy","true");
@@ -2198,6 +2213,48 @@ buildChannels();
 // pintar valores por defecto YA (evita ver todo en 0 mientras conecta);
 // el estado real del equipo los pisa apenas llega por WebSocket
 DEMO_STATE.channels.forEach(c=>paintCh(c.id,c.pct,c.on));
+/* ── Barra de secciones (P-25, 2026-10-05) ──
+   El activo sigue al scroll: manda la última sección cuyo comienzo ya pasó
+   el tercio superior de la pantalla, y al fondo de la página gana Conexión
+   aunque su tarjeta sea corta. Durante el desplazamiento suave de un toque
+   no se recalcula, para que los botones intermedios no parpadeen. */
+const SECBAR=[["nav-estado",null],["nav-espectro","channels-card"],
+              ["nav-horario","horario-card"],["nav-conexion","wifi-card"]];
+let secQuieto=0;
+function secMarcar(idBtn){
+  for(const [b] of SECBAR){
+    const on=b===idBtn;
+    $(b).classList.toggle("act",on);
+    if(on)$(b).setAttribute("aria-current","true");
+    else $(b).removeAttribute("aria-current");
+  }
+}
+function secActiva(){
+  if(Date.now()<secQuieto)return;
+  const corte=scrollY+innerHeight*0.34;
+  let act="nav-estado";
+  for(const [btn,sec] of SECBAR)
+    if(sec&&$(sec).offsetTop<=corte)act=btn;
+  if(scrollY+innerHeight>=document.documentElement.scrollHeight-8)
+    act=SECBAR[SECBAR.length-1][0];
+  secMarcar(act);
+}
+for(const [btn,sec] of SECBAR)
+  $(btn).onclick=()=>{
+    const suave=!matchMedia("(prefers-reduced-motion: reduce)").matches;
+    secQuieto=Date.now()+(suave?700:150);
+    secMarcar(btn);
+    if(sec)$(sec).scrollIntoView({behavior:suave?"smooth":"auto",block:"start"});
+    else scrollTo({top:0,behavior:suave?"smooth":"auto"});
+  };
+let secRaf=false;
+addEventListener("scroll",()=>{
+  if(secRaf)return;
+  secRaf=true;
+  requestAnimationFrame(()=>{secRaf=false;secActiva()});
+},{passive:true});
+secActiva();
+
 // El arranque local (connect) no corre acá: la capa de nube decide
 // qué equipo mirar y de dónde traer su estado. Ver nube-ui.js.
 scheduleSpd();
